@@ -170,15 +170,26 @@ defmodule GEPA.Utils.Pareto do
         end)
       end)
 
-    # Build weighted sampling list (programs repeated by frequency)
-    sampling_list =
-      for {prog, count} <- freq,
-          _ <- 1..count,
-          do: prog
+    # Handle edge case: if no programs in fronts, return program 0
+    if map_size(freq) == 0 do
+      # Fallback: return highest scoring program
+      fallback_prog =
+        scores
+        |> Enum.max_by(fn {_prog, score} -> score end, fn -> {0, 0.0} end)
+        |> elem(0)
 
-    # Random selection
-    {idx, new_rand} = :rand.uniform_s(length(sampling_list), rand_state)
-    {Enum.at(sampling_list, idx - 1), new_rand}
+      {fallback_prog, rand_state}
+    else
+      # Build weighted sampling list (programs repeated by frequency)
+      sampling_list =
+        for {prog, count} <- freq,
+            _ <- 1..count,
+            do: prog
+
+      # Random selection
+      {idx, new_rand} = :rand.uniform_s(length(sampling_list), rand_state)
+      {Enum.at(sampling_list, idx - 1), new_rand}
+    end
   end
 
   @doc """
