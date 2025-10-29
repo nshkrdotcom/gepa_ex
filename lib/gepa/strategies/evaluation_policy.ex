@@ -32,11 +32,13 @@ defmodule GEPA.Strategies.EvaluationPolicy.Full do
   @behaviour GEPA.Strategies.EvaluationPolicy
 
   @impl true
+  @spec get_eval_batch(GEPA.DataLoader.t(), GEPA.State.t(), non_neg_integer() | nil) :: [term()]
   def get_eval_batch(valset_loader, _state, _target_program_idx) do
     GEPA.DataLoader.all_ids(valset_loader)
   end
 
   @impl true
+  @spec get_best_program(GEPA.State.t()) :: non_neg_integer()
   def get_best_program(state) do
     # Find program with highest average score, with coverage tie-breaking
     state.prog_candidate_val_subscores
@@ -50,12 +52,28 @@ defmodule GEPA.Strategies.EvaluationPolicy.Full do
   end
 
   @impl true
+  @spec get_valset_score(non_neg_integer(), GEPA.State.t()) :: float()
   def get_valset_score(program_idx, state) do
     {avg, _count} = GEPA.State.get_program_score(state, program_idx)
     avg
   end
 
-  @doc false
+  @doc """
+  Calculate average score and coverage from a scores map.
+
+  Returns a tuple of `{average, count}` where average is the mean of all scores
+  and count is the number of scores evaluated.
+
+  ## Examples
+
+      iex> calculate_avg_and_coverage(%{})
+      {0.0, 0}
+
+      iex> calculate_avg_and_coverage(%{1 => 0.8, 2 => 0.9, 3 => 0.7})
+      {0.8, 3}
+  """
+  @spec calculate_avg_and_coverage(%{optional(term()) => number()}) ::
+          {float(), non_neg_integer()}
   def calculate_avg_and_coverage(scores) when map_size(scores) == 0 do
     {0.0, 0}
   end
@@ -167,6 +185,7 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
   end
 
   @impl true
+  @spec get_eval_batch(GEPA.DataLoader.t(), GEPA.State.t(), non_neg_integer() | nil) :: [term()]
   def get_eval_batch(_valset_loader, _state, _target_program_idx) do
     # For now, return all IDs (full implementation would use incremental logic)
     # This can be enhanced when integrated with Engine
@@ -174,6 +193,7 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
   end
 
   @impl true
+  @spec get_best_program(GEPA.State.t()) :: non_neg_integer()
   def get_best_program(state) do
     # Same as Full policy
     state.prog_candidate_val_subscores
@@ -189,6 +209,7 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
   end
 
   @impl true
+  @spec get_valset_score(non_neg_integer(), GEPA.State.t()) :: float()
   def get_valset_score(program_idx, state) do
     {avg, _count} = GEPA.State.get_program_score(state, program_idx)
     avg

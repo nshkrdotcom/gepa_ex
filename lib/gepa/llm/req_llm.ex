@@ -4,7 +4,7 @@ defmodule GEPA.LLM.ReqLLM do
 
   Supports multiple LLM providers through a unified interface:
   - OpenAI (gpt-4o-mini, gpt-4o, etc.)
-  - Google Gemini (gemini-2.0-flash-exp, gemini-1.5-pro, etc.)
+  - Google Gemini (gemini-flash-lite-latest)
 
   ## Configuration
 
@@ -36,7 +36,7 @@ defmodule GEPA.LLM.ReqLLM do
       # Gemini with custom model
       llm = GEPA.LLM.ReqLLM.new(
         provider: :gemini,
-        model: "gemini-1.5-pro",
+        model: "gemini-flash-lite-latest",
         temperature: 0.9
       )
       {:ok, response} = GEPA.LLM.complete(llm, "Write a haiku about Elixir")
@@ -72,7 +72,7 @@ defmodule GEPA.LLM.ReqLLM do
 
   @default_models %{
     openai: "gpt-4o-mini",
-    gemini: "gemini-2.0-flash-exp"
+    gemini: "gemini-flash-lite-latest"
   }
 
   @default_temperature 0.7
@@ -85,7 +85,7 @@ defmodule GEPA.LLM.ReqLLM do
   ## Options
 
     - `:provider` - LLM provider (:openai or :gemini), required
-    - `:model` - Model name (defaults: "gpt-4o-mini" for OpenAI, "gemini-2.0-flash-exp" for Gemini)
+    - `:model` - Model name (defaults: "gpt-4o-mini" for OpenAI, "gemini-flash-lite-latest" for Gemini)
     - `:api_key` - API key (falls back to env vars if not provided)
     - `:temperature` - Sampling temperature 0.0-1.0 (default: 0.7)
     - `:max_tokens` - Maximum tokens to generate (default: 2000)
@@ -128,6 +128,7 @@ defmodule GEPA.LLM.ReqLLM do
   end
 
   @impl GEPA.LLM
+  @spec complete(t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def complete(%__MODULE__{} = llm, prompt, opts \\ []) when is_binary(prompt) do
     # Merge instance config with per-call options
     merged_opts = merge_options(llm, opts)
@@ -157,63 +158,56 @@ defmodule GEPA.LLM.ReqLLM do
   end
 
   defp complete_openai(prompt, opts) do
-    model = Keyword.fetch!(opts, :model)
-    api_key = Keyword.fetch!(opts, :api_key)
+    model_opts = build_model_opts(opts)
 
-    # Build model spec for ReqLLM
-    model_opts =
-      [
-        temperature: Keyword.get(opts, :temperature, @default_temperature),
-        max_tokens: Keyword.get(opts, :max_tokens, @default_max_tokens)
-      ]
-      |> maybe_add_opt(:top_p, Keyword.get(opts, :top_p))
-
-    model_spec = {:openai, model, model_opts}
-
-    # Set API key for the request
-    ReqLLM.put_key(:openai_api_key, api_key)
-
-    # Use unified ReqLLM API
-    case ReqLLM.generate_text(model_spec, prompt) do
-      {:ok, response} ->
-        text = ReqLLM.Response.text(response)
-        {:ok, text}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, model} <- required_option(opts, :model),
+         {:ok, api_key} <- required_option(opts, :api_key),
+         :ok <- ReqLLM.put_key(:openai_api_key, api_key),
+         {:ok, response} <-
+           ReqLLM.generate_text(
+             ReqLLM.Model.new(:openai, model, model_opts),
+             prompt
+           ) do
+      {:ok, ReqLLM.Response.text(response)}
+    else
+      {:error, _} = error -> error
     end
   end
 
   defp complete_gemini(prompt, opts) do
-    model = Keyword.fetch!(opts, :model)
-    api_key = Keyword.fetch!(opts, :api_key)
+    model_opts = build_model_opts(opts)
 
-    # Build model spec for ReqLLM
-    model_opts =
-      [
-        temperature: Keyword.get(opts, :temperature, @default_temperature),
-        max_tokens: Keyword.get(opts, :max_tokens, @default_max_tokens)
-      ]
-      |> maybe_add_opt(:top_p, Keyword.get(opts, :top_p))
-
-    model_spec = {:google, model, model_opts}
-
-    # Set API key for the request
-    ReqLLM.put_key(:gemini_api_key, api_key)
-
-    # Use unified ReqLLM API
-    case ReqLLM.generate_text(model_spec, prompt) do
-      {:ok, response} ->
-        text = ReqLLM.Response.text(response)
-        {:ok, text}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, model} <- required_option(opts, :model),
+         {:ok, api_key} <- required_option(opts, :api_key),
+         :ok <- ReqLLM.put_key(:gemini_api_key, api_key),
+         {:ok, response} <-
+           ReqLLM.generate_text(
+             ReqLLM.Model.new(:google, model, model_opts),
+             prompt
+           ) do
+      {:ok, ReqLLM.Response.text(response)}
+    else
+      {:error, _} = error -> error
     end
   end
 
   defp maybe_add_opt(list, _key, nil), do: list
   defp maybe_add_opt(list, key, value), do: Keyword.put(list, key, value)
+
+  defp build_model_opts(opts) do
+    [
+      temperature: Keyword.get(opts, :temperature, @default_temperature),
+      max_tokens: Keyword.get(opts, :max_tokens, @default_max_tokens)
+    ]
+    |> maybe_add_opt(:top_p, Keyword.get(opts, :top_p))
+  end
+
+  defp required_option(opts, key) do
+    case Keyword.fetch(opts, key) do
+      {:ok, value} when not is_nil(value) -> {:ok, value}
+      _ -> {:error, "missing required option :#{key}"}
+    end
+  end
 
   defp get_default_api_key(:openai) do
     System.get_env("OPENAI_API_KEY")

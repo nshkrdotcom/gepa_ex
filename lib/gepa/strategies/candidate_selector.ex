@@ -37,6 +37,8 @@ defmodule GEPA.Strategies.CandidateSelector.Pareto do
   alias GEPA.Utils.Pareto
 
   @impl true
+  @spec select(GEPA.State.t(), :rand.state() | nil) ::
+          {GEPA.Types.program_idx(), :rand.state()}
   def select(state, rand_state) do
     # Build scores map for Pareto utilities
     scores =
@@ -70,6 +72,8 @@ defmodule GEPA.Strategies.CandidateSelector.CurrentBest do
   @behaviour GEPA.Strategies.CandidateSelector
 
   @impl true
+  @spec select(GEPA.State.t(), :rand.state() | nil) ::
+          {GEPA.Types.program_idx(), :rand.state()}
   def select(state, rand_state) do
     # Find program with highest average score
     best_idx =

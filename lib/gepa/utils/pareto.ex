@@ -42,9 +42,15 @@ defmodule GEPA.Utils.Pareto do
   def is_dominated?(program, other_programs, program_at_pareto_front_valset) do
     # Find all fronts containing this program
     fronts_with_program =
-      for {_id, front} <- program_at_pareto_front_valset,
-          MapSet.member?(front, program),
-          do: front
+      program_at_pareto_front_valset
+      |> Enum.reduce([], fn {_id, front}, acc ->
+        if is_struct(front, MapSet) and MapSet.member?(front, program) do
+          [front | acc]
+        else
+          acc
+        end
+      end)
+      |> Enum.reverse()
 
     # If program is not in any front, it's not dominated
     if fronts_with_program == [] do
@@ -89,28 +95,42 @@ defmodule GEPA.Utils.Pareto do
     all_programs =
       program_at_pareto_front_valset
       |> Map.values()
-      |> Enum.reduce(MapSet.new(), &MapSet.union/2)
+      |> Enum.reduce(MapSet.new(), fn front, acc ->
+        if is_struct(front, MapSet) do
+          MapSet.union(acc, front)
+        else
+          acc
+        end
+      end)
       |> MapSet.to_list()
 
     # Sort by score (ascending) - remove lower-scoring dominated first
     sorted_programs = Enum.sort_by(all_programs, &Map.get(scores, &1, 0.0))
 
     # Iteratively find and remove dominated programs
-    dominated = do_eliminate(program_at_pareto_front_valset, sorted_programs, MapSet.new())
+    dominated = do_eliminate(program_at_pareto_front_valset, sorted_programs, [])
+    dominated_set = MapSet.new(dominated)
 
     # Build new fronts without dominated programs
     for {id, front} <- program_at_pareto_front_valset, into: %{} do
-      {id, MapSet.difference(front, dominated)}
+      new_front =
+        if is_struct(front, MapSet) do
+          MapSet.difference(front, dominated_set)
+        else
+          front
+        end
+
+      {id, new_front}
     end
   end
 
   # Recursive elimination of dominated programs
   defp do_eliminate(fronts, programs, dominated) do
-    active_programs = Enum.reject(programs, &MapSet.member?(dominated, &1))
+    active_programs = Enum.reject(programs, &Enum.member?(dominated, &1))
 
     case find_next_dominated(fronts, active_programs, dominated) do
       {:ok, prog} ->
-        do_eliminate(fronts, programs, MapSet.put(dominated, prog))
+        do_eliminate(fronts, programs, [prog | dominated])
 
       :none ->
         dominated
@@ -219,7 +239,13 @@ defmodule GEPA.Utils.Pareto do
 
     cleaned_fronts
     |> Map.values()
-    |> Enum.reduce(MapSet.new(), &MapSet.union/2)
+    |> Enum.reduce(MapSet.new(), fn front, acc ->
+      if is_struct(front, MapSet) do
+        MapSet.union(acc, front)
+      else
+        acc
+      end
+    end)
     |> MapSet.to_list()
   end
 
@@ -230,7 +256,13 @@ defmodule GEPA.Utils.Pareto do
   def get_all_programs(fronts) do
     fronts
     |> Map.values()
-    |> Enum.reduce(MapSet.new(), &MapSet.union/2)
+    |> Enum.reduce(MapSet.new(), fn front, acc ->
+      if is_struct(front, MapSet) do
+        MapSet.union(acc, front)
+      else
+        acc
+      end
+    end)
     |> MapSet.to_list()
   end
 end

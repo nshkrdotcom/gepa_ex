@@ -18,7 +18,7 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm = ReqLLM.new(provider: :gemini)
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-2.0-flash-exp"
+      assert llm.model == "gemini-flash-lite-latest"
       assert llm.temperature == 0.7
       assert llm.max_tokens == 2000
     end
@@ -98,9 +98,9 @@ defmodule GEPA.LLM.ReqLLMTest do
       assert llm.model == "gpt-4o-mini"
     end
 
-    test "Gemini default model is gemini-2.0-flash-exp" do
+    test "Gemini default model is gemini-flash-lite-latest" do
       llm = ReqLLM.new(provider: :gemini)
-      assert llm.model == "gemini-2.0-flash-exp"
+      assert llm.model == "gemini-flash-lite-latest"
     end
 
     test "can override default models" do

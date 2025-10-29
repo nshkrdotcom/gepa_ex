@@ -18,6 +18,7 @@ defmodule GEPA.Engine do
 
   `{:ok, final_state}` on success
   """
+  @spec run(map()) :: {:ok, GEPA.State.t()}
   def run(config) do
     # Initialize or load state
     state = initialize_state(config)
@@ -38,6 +39,8 @@ defmodule GEPA.Engine do
 
   Returns `{:cont, new_state}` to continue or `{:stop, state}` to stop.
   """
+  @spec run_iteration(GEPA.State.t(), map()) ::
+          {:cont, GEPA.State.t(), map()} | {:stop, GEPA.State.t()}
   def run_iteration(state, config) do
     # Check stop conditions
     if should_stop?(state, config.stop_conditions) do
@@ -50,18 +53,27 @@ defmodule GEPA.Engine do
 
       # Try merge proposer first (if configured and conditions met)
       {proposal, state, config} =
-        if config[:merge_proposer] do
-          try_merge_proposal(state, config)
-        else
-          {nil, state, config}
-        end
+        case Map.fetch(config, :merge_proposer) do
+          {:ok, nil} ->
+            {reflective, new_state} = try_reflective_proposal(state, config)
+            {reflective, new_state, config}
 
-      # If no merge proposal, try reflective proposer
-      {proposal, state} =
-        if is_nil(proposal) do
-          try_reflective_proposal(state, config)
-        else
-          {proposal, state}
+          {:ok, merge_proposer} ->
+            {merge_proposal, updated_proposer} =
+              GEPA.Proposer.Merge.propose(merge_proposer, state)
+
+            merge_config = %{config | merge_proposer: updated_proposer}
+
+            if merge_proposal do
+              {merge_proposal, state, merge_config}
+            else
+              {reflective, new_state} = try_reflective_proposal(state, merge_config)
+              {reflective, new_state, merge_config}
+            end
+
+          :error ->
+            {reflective, new_state} = try_reflective_proposal(state, config)
+            {reflective, new_state, config}
         end
 
       # Handle proposal
@@ -83,13 +95,17 @@ defmodule GEPA.Engine do
 
             # Notify merge proposer that a new program was found
             new_config =
-              if config[:merge_proposer] do
-                merge_proposer = config.merge_proposer
-                updated_merge = %{merge_proposer | last_iter_found_new_program: true}
-                updated_merge = GEPA.Proposer.Merge.schedule_if_needed(updated_merge)
-                %{config | merge_proposer: updated_merge}
-              else
-                config
+              case Map.fetch(config, :merge_proposer) do
+                {:ok, nil} ->
+                  config
+
+                {:ok, merge_proposer} ->
+                  updated_merge = %{merge_proposer | last_iter_found_new_program: true}
+                  updated_merge = GEPA.Proposer.Merge.schedule_if_needed(updated_merge)
+                  %{config | merge_proposer: updated_merge}
+
+                :error ->
+                  config
               end
 
             {:cont, new_state, new_config}
@@ -106,16 +122,6 @@ defmodule GEPA.Engine do
           {:cont, state, config}
       end
     end
-  end
-
-  defp try_merge_proposal(state, config) do
-    merge_proposer = config.merge_proposer
-
-    {proposal, updated_proposer} = GEPA.Proposer.Merge.propose(merge_proposer, state)
-
-    config = %{config | merge_proposer: updated_proposer}
-
-    {proposal, state, config}
   end
 
   defp try_reflective_proposal(state, config) do
@@ -180,14 +186,6 @@ defmodule GEPA.Engine do
           end
 
           optimization_loop(new_state, new_config, max_iters)
-
-        {:cont, new_state} ->
-          # Backward compatibility - config not updated
-          if config[:run_dir] && rem(new_state.i, 5) == 0 do
-            save_state(new_state, config.run_dir)
-          end
-
-          optimization_loop(new_state, config, max_iters)
 
         {:stop, final_state} ->
           Logger.info("Optimization stopped at iteration #{final_state.i}")

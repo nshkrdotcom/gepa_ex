@@ -84,6 +84,7 @@ defmodule GEPA.StopCondition.Composite do
   end
 
   @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
   def should_stop?(%__MODULE__{conditions: conditions, mode: :any}, state) do
     Enum.any?(conditions, fn condition ->
       module = condition.__struct__
@@ -91,6 +92,7 @@ defmodule GEPA.StopCondition.Composite do
     end)
   end
 
+  @impl true
   def should_stop?(%__MODULE__{conditions: conditions, mode: :all}, state) do
     Enum.all?(conditions, fn condition ->
       module = condition.__struct__
@@ -153,6 +155,7 @@ defmodule GEPA.StopCondition.Timeout do
   end
 
   @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
   def should_stop?(%__MODULE__{} = condition, _state) do
     elapsed = System.monotonic_time(:second) - condition.start_time
     elapsed >= condition.max_seconds
@@ -239,6 +242,7 @@ defmodule GEPA.StopCondition.NoImprovement do
   end
 
   @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
   def should_stop?(%__MODULE__{} = condition, _state) do
     condition.iterations_without_improvement >= condition.patience
   end
@@ -279,6 +283,7 @@ defmodule GEPA.StopCondition.MaxCalls do
   end
 
   @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
   def should_stop?(%__MODULE__{max_calls: max_calls}, %GEPA.State{total_num_evals: total}) do
     total >= max_calls
   end

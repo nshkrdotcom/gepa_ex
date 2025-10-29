@@ -34,7 +34,7 @@ mix run examples/01_quick_start.exs
 mix run examples/02_math_problems.exs
 ```
 
-#### Google Gemini (Gemini-2.0-Flash-Exp)
+#### Google Gemini (gemini-flash-lite-latest)
 
 ```bash
 export GEMINI_API_KEY=...

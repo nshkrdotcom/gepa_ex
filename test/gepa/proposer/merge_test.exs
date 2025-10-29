@@ -5,7 +5,7 @@ defmodule GEPA.Proposer.MergeTest do
   # These tests define the complete merge proposer behavior
 
   alias GEPA.Proposer.Merge
-  alias GEPA.{CandidateProposal, State, EvaluationBatch, DataLoader}
+  alias GEPA.{CandidateProposal, State, EvaluationBatch}
 
   describe "new/1 - RED PHASE" do
     test "creates merge proposer with required options" do

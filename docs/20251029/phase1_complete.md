@@ -28,7 +28,7 @@ Phase 1 of the GEPA Elixir implementation roadmap has been successfully complete
 
 **Providers Supported:**
 - **OpenAI**: GPT-4o-mini (default), GPT-4o, GPT-4-turbo
-- **Google Gemini**: Gemini-2.0-Flash-Exp (default), Gemini-1.5-Pro
+- **Google Gemini**: gemini-flash-lite-latest (default)
 
 **Features:**
 - Unified behavior interface across providers

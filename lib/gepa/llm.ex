@@ -10,7 +10,7 @@ defmodule GEPA.LLM do
 
   - `GEPA.LLM.ReqLLM` - Production implementation using ReqLLM library
     - Supports OpenAI (default: gpt-4o-mini)
-    - Supports Google Gemini (default: gemini-2.0-flash-exp)
+    - Supports Google Gemini (default: gemini-flash-lite-latest)
   - `GEPA.LLM.Mock` - Mock implementation for testing
 
   ## Configuration
@@ -28,7 +28,7 @@ defmodule GEPA.LLM do
       llm = GEPA.LLM.ReqLLM.new(
         provider: :gemini,
         api_key: System.get_env("GEMINI_API_KEY"),
-        model: "gemini-2.0-flash-exp"
+        model: "gemini-flash-lite-latest"
       )
 
       {:ok, response} = GEPA.LLM.complete(llm, prompt, temperature: 0.9)

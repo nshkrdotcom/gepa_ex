@@ -35,6 +35,8 @@ defmodule GEPA.Strategies.ComponentSelector.RoundRobin do
   @behaviour GEPA.Strategies.ComponentSelector
 
   @impl true
+  @spec select(GEPA.State.t(), non_neg_integer(), map()) ::
+          {[String.t()], GEPA.State.t()}
   def select(state, candidate_idx, _candidate) do
     # Get current position for this candidate
     current_pos =
@@ -70,6 +72,8 @@ defmodule GEPA.Strategies.ComponentSelector.All do
   @behaviour GEPA.Strategies.ComponentSelector
 
   @impl true
+  @spec select(GEPA.State.t(), non_neg_integer(), map()) ::
+          {[String.t()], GEPA.State.t()}
   def select(state, _candidate_idx, candidate) do
     # Return all component names
     {Map.keys(candidate), state}

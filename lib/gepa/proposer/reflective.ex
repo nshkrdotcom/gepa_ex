@@ -24,6 +24,7 @@ defmodule GEPA.Proposer.Reflective do
           minibatch_size: pos_integer()
         }
 
+  @spec new(keyword()) :: t()
   def new(opts) do
     %__MODULE__{
       adapter: opts[:adapter],

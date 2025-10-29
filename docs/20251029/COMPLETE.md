@@ -32,7 +32,7 @@
 
 **Features:**
 - ✅ OpenAI support (GPT-4o-mini default)
-- ✅ Google Gemini support (Gemini-2.0-Flash-Exp default)
+- ✅ Google Gemini support (`gemini-flash-lite-latest` default)
 - ✅ Environment variable configuration
 - ✅ Runtime configuration
 - ✅ Error handling

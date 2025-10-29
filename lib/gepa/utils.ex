@@ -48,8 +48,14 @@ defmodule GEPA.Utils do
     # Find all fronts this program appears on
     program_fronts =
       pareto_front
-      |> Enum.filter(fn {_val_id, front} -> MapSet.member?(front, program) end)
-      |> Enum.map(fn {val_id, front} -> {val_id, front} end)
+      |> Enum.reduce([], fn {val_id, front}, acc ->
+        if is_struct(front, MapSet) and MapSet.member?(front, program) do
+          [{val_id, front} | acc]
+        else
+          acc
+        end
+      end)
+      |> Enum.reverse()
 
     # If program doesn't appear on any front, consider it dominated
     if Enum.empty?(program_fronts) do
@@ -96,20 +102,32 @@ defmodule GEPA.Utils do
     all_programs =
       pareto_front
       |> Map.values()
-      |> Enum.reduce(MapSet.new(), fn front, acc -> MapSet.union(acc, front) end)
+      |> Enum.reduce(MapSet.new(), fn front, acc ->
+        if is_struct(front, MapSet) do
+          MapSet.union(acc, front)
+        else
+          acc
+        end
+      end)
       |> MapSet.to_list()
 
     # Sort programs by score (ascending) - check weakest first
     sorted_programs = Enum.sort_by(all_programs, &Map.get(scores, &1, 0))
 
     # Iteratively find dominated programs
-    dominated = find_dominated_programs(sorted_programs, pareto_front, scores, MapSet.new())
+    dominated = find_dominated_programs(sorted_programs, pareto_front, scores, [])
+    dominated_set = MapSet.new(dominated)
 
-    # Remove dominated programs from all fronts
     new_pareto_front =
       pareto_front
       |> Enum.map(fn {val_id, front} ->
-        new_front = MapSet.difference(front, dominated)
+        new_front =
+          if is_struct(front, MapSet) do
+            MapSet.difference(front, dominated_set)
+          else
+            front
+          end
+
         {val_id, new_front}
       end)
       |> Enum.into(%{})
@@ -122,7 +140,7 @@ defmodule GEPA.Utils do
 
   defp find_dominated_programs([program | rest], pareto_front, scores, dominated) do
     # Skip if already dominated
-    if MapSet.member?(dominated, program) do
+    if Enum.member?(dominated, program) do
       find_dominated_programs(rest, pareto_front, scores, dominated)
     else
       # Only consider programs with STRICTLY HIGHER scores as potential dominators
@@ -131,7 +149,7 @@ defmodule GEPA.Utils do
       potential_dominators =
         rest
         |> Enum.filter(fn p ->
-          !MapSet.member?(dominated, p) and Map.get(scores, p, 0) > program_score
+          not Enum.member?(dominated, p) and Map.get(scores, p, 0) > program_score
         end)
         |> MapSet.new()
 
@@ -139,7 +157,7 @@ defmodule GEPA.Utils do
       if MapSet.size(potential_dominators) > 0 and
            is_dominated?(program, potential_dominators, pareto_front) do
         # This program is dominated
-        find_dominated_programs(rest, pareto_front, scores, MapSet.put(dominated, program))
+        find_dominated_programs(rest, pareto_front, scores, [program | dominated])
       else
         # This program is NOT dominated - it's a dominator
         find_dominated_programs(rest, pareto_front, scores, dominated)
@@ -188,7 +206,13 @@ defmodule GEPA.Utils do
     dominators =
       cleaned_fronts
       |> Map.values()
-      |> Enum.reduce(MapSet.new(), fn front, acc -> MapSet.union(acc, front) end)
+      |> Enum.reduce(MapSet.new(), fn front, acc ->
+        if is_struct(front, MapSet) do
+          MapSet.union(acc, front)
+        else
+          acc
+        end
+      end)
       |> MapSet.to_list()
 
     # Return sorted by score (descending)

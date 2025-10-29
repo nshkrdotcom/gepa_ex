@@ -24,6 +24,7 @@ defmodule GEPA.Adapters.Basic do
   - `:llm_client` - Module implementing generate/1 (default: GEPA.LLM.Mock)
   - `:failure_score` - Score for failed evaluations (default: 0.0)
   """
+  @spec new(keyword()) :: t()
   def new(opts \\ []) do
     %__MODULE__{
       llm_client: opts[:llm_client] || GEPA.LLM.Mock,
@@ -34,6 +35,12 @@ defmodule GEPA.Adapters.Basic do
   @doc """
   Evaluate a batch of examples with the candidate program.
   """
+  @spec evaluate(
+          t(),
+          [GEPA.Adapter.data_inst()],
+          GEPA.Adapter.candidate(),
+          boolean()
+        ) :: {:ok, GEPA.EvaluationBatch.t()}
   def evaluate(%__MODULE__{} = _adapter, batch, candidate, capture_traces) do
     # Extract instruction (assumes single component)
     instruction =
@@ -72,6 +79,12 @@ defmodule GEPA.Adapters.Basic do
   @doc """
   Build reflective dataset from evaluation results.
   """
+  @spec make_reflective_dataset(
+          t(),
+          GEPA.Adapter.candidate(),
+          GEPA.EvaluationBatch.t(),
+          [String.t()]
+        ) :: {:ok, GEPA.Adapter.reflective_dataset()}
   def make_reflective_dataset(%__MODULE__{}, candidate, eval_batch, components_to_update) do
     dataset =
       for component <- components_to_update, into: %{} do

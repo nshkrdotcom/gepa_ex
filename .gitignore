@@ -23,3 +23,7 @@ gepa_ex-*.tar
 /tmp/
 
 /gepa/
+
+# Dialyzer PLTs
+/priv/plts/
+gepa_ex-*/

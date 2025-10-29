@@ -4,6 +4,8 @@ defmodule GEPA.Application do
   use Application
 
   @impl true
+  @spec start(Application.start_type(), term()) ::
+          {:ok, pid()} | {:error, {:already_started, pid()} | term()}
   def start(_type, _args) do
     children = [
       # Task supervisor for parallel evaluation

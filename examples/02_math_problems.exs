@@ -83,7 +83,7 @@ llm =
       GEPA.LLM.ReqLLM.new(provider: :openai)
 
     System.get_env("GEMINI_API_KEY") || System.get_env("GOOGLE_API_KEY") ->
-      IO.puts("✨ Using Gemini (gemini-2.0-flash-exp)\n")
+      IO.puts("✨ Using Gemini (gemini-flash-lite-latest)\n")
       GEPA.LLM.ReqLLM.new(provider: :gemini)
 
     true ->

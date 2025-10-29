@@ -34,14 +34,14 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
       llm =
         ReqLLM.new(
           provider: :gemini,
-          model: "gemini-2.0-flash-exp",
+          model: "gemini-flash-lite-latest",
           api_key: "test-key",
           temperature: 0.8,
           max_tokens: 500
         )
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-2.0-flash-exp"
+      assert llm.model == "gemini-flash-lite-latest"
       assert llm.api_key == "test-key"
       assert llm.temperature == 0.8
       assert llm.max_tokens == 500

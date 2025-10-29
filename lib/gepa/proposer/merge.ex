@@ -235,19 +235,38 @@ defmodule GEPA.Proposer.Merge do
         program_scores
       )
 
-    # Try to find a valid merge
-    merge_result =
-      attempt_merge_by_common_predictors(
-        proposer,
-        merge_candidates,
-        state
-      )
+    if length(merge_candidates) < 2 do
+      {nil, proposer}
+    else
+      with {id1, id2, ancestor} <-
+             MergeUtils.find_common_ancestor_pair(
+               merge_candidates,
+               state.parent_program_for_candidate,
+               program_scores
+             ),
+           true <- has_val_support_overlap?(proposer, state, id1, id2),
+           filtered when is_list(filtered) <-
+             MergeUtils.filter_ancestors(
+               id1,
+               id2,
+               [ancestor],
+               proposer.merges_performed,
+               program_scores,
+               state.program_candidates
+             ),
+           true <- Enum.member?(filtered, ancestor) do
+        # Perform the merge
+        merged_candidate = merge_predictors(state, ancestor, id1, id2)
 
-    case merge_result do
-      nil ->
-        {nil, proposer}
+        # Select subsample for evaluation
+        subsample_ids =
+          select_eval_subsample_for_merged_program(
+            proposer,
+            state.prog_candidate_val_subscores[id1],
+            state.prog_candidate_val_subscores[id2],
+            num_subsample_ids: 5
+          )
 
-      {merged_candidate, id1, id2, ancestor, subsample_ids} ->
         # Evaluate merged candidate on subsample
         batch = DataLoader.fetch(proposer.valset, subsample_ids)
         {_outputs, scores} = proposer.evaluator.(batch, merged_candidate)
@@ -283,59 +302,8 @@ defmodule GEPA.Proposer.Merge do
         }
 
         {proposal, new_proposer}
-    end
-  end
-
-  defp attempt_merge_by_common_predictors(proposer, merge_candidates, state) do
-    if length(merge_candidates) < 2 do
-      nil
-    else
-      # Calculate aggregate scores
-      program_scores = calculate_aggregate_scores(state)
-
-      # Try to find a common ancestor pair
-      case MergeUtils.find_common_ancestor_pair(
-             merge_candidates,
-             state.parent_program_for_candidate,
-             program_scores
-           ) do
-        nil ->
-          nil
-
-        {id1, id2, ancestor} ->
-          # Check for validation overlap
-          if has_val_support_overlap?(proposer, state, id1, id2) do
-            # Filter ancestors
-            filtered =
-              MergeUtils.filter_ancestors(
-                id1,
-                id2,
-                [ancestor],
-                proposer.merges_performed,
-                program_scores,
-                state.program_candidates
-              )
-
-            if ancestor in filtered do
-              # Perform the merge
-              merged_candidate = merge_predictors(state, ancestor, id1, id2)
-
-              # Select subsample for evaluation
-              subsample_ids =
-                select_eval_subsample_for_merged_program(
-                  proposer,
-                  state.prog_candidate_val_subscores[id1],
-                  state.prog_candidate_val_subscores[id2],
-                  num_subsample_ids: 5
-                )
-
-              {merged_candidate, id1, id2, ancestor, subsample_ids}
-            else
-              nil
-            end
-          else
-            nil
-          end
+      else
+        _ -> {nil, proposer}
       end
     end
   end

@@ -43,6 +43,7 @@ defmodule GEPA do
 
   `{:ok, result}` where result is a `GEPA.Result` struct
   """
+  @spec optimize(Keyword.t()) :: {:ok, GEPA.Result.t()}
   def optimize(opts) do
     # Build configuration
     config = build_config(opts)

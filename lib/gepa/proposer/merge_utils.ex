@@ -32,21 +32,20 @@ defmodule GEPA.Proposer.MergeUtils do
           parent_list :: %{non_neg_integer() => [non_neg_integer()]}
         ) :: [non_neg_integer()]
   def get_ancestors(program, parent_list) do
-    do_get_ancestors(program, parent_list, MapSet.new())
-    |> MapSet.to_list()
+    do_get_ancestors(program, parent_list, [])
   end
 
   defp do_get_ancestors(program, parent_list, found) do
     parents = Map.get(parent_list, program, [])
 
     Enum.reduce(parents, found, fn parent, acc ->
-      if MapSet.member?(acc, parent) do
+      if Enum.member?(acc, parent) do
         # Already visited (cycle detection)
         acc
       else
         # Add this parent and recursively get its ancestors
         acc
-        |> MapSet.put(parent)
+        |> then(&[parent | &1])
         |> then(&do_get_ancestors(parent, parent_list, &1))
       end
     end)

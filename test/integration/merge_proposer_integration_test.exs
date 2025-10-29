@@ -4,7 +4,7 @@ defmodule Integration.MergeProposerIntegrationTest do
   # TDD RED PHASE: Engine integration with merge proposer
   # These tests verify merge proposer works end-to-end with Engine
 
-  alias GEPA.{Engine, State, DataLoader, Adapter}
+  alias GEPA.{Engine, State, DataLoader}
   alias GEPA.Proposer.{Reflective, Merge}
 
   describe "Engine with merge proposer - RED PHASE" do
@@ -128,7 +128,7 @@ defmodule Integration.MergeProposerIntegrationTest do
     evaluator = fn batch, candidate ->
       # Simple mock evaluator
       adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
-      {:ok, eval_batch} = Adapter.evaluate(adapter, batch, candidate, false)
+      {:ok, eval_batch} = adapter.__struct__.evaluate(adapter, batch, candidate, false)
       {eval_batch.outputs, eval_batch.scores}
     end
 

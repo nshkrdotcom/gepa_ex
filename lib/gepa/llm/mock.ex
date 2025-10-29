@@ -69,6 +69,7 @@ defmodule GEPA.LLM.Mock do
   end
 
   @impl GEPA.LLM
+  @spec complete(t(), String.t(), keyword()) :: {:ok, String.t()}
   def complete(%__MODULE__{} = llm, prompt, _opts \\ []) when is_binary(prompt) do
     response =
       cond do
@@ -96,6 +97,7 @@ defmodule GEPA.LLM.Mock do
 
   Prefer using `GEPA.LLM.complete/3` instead.
   """
+  @spec generate(String.t()) :: {:ok, String.t()}
   def generate(prompt) when is_binary(prompt) do
     llm = new()
     complete(llm, prompt)
@@ -106,6 +108,7 @@ defmodule GEPA.LLM.Mock do
 
   Prefer using `GEPA.LLM.complete/3` instead.
   """
+  @spec complete([map()]) :: {:ok, %{required(:content) => String.t()}}
   def complete(messages) when is_list(messages) do
     # Extract user message
     user_msg =

@@ -1,8 +1,12 @@
+<p align="center">
+  <img src="assets/gepa_ex.svg" alt="GEPA Elixir Logo" width="200" height="200">
+</p>
+
 # GEPA for Elixir
 
-An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
+**Current version:** v0.1.0
 
-**Status:** 🎉 Phase 2 Complete - Core Features! | v0.4.0-dev
+An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
 
 [![Tests](https://img.shields.io/badge/tests-218%2F218%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
@@ -18,11 +22,11 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - 🛡️ **OTP supervision** for fault-tolerant external service integration
 - 🔄 **Functional programming** for clean, testable code
 - 📊 **Telemetry** for comprehensive observability (coming in Phase 3)
-- ✨ **Production LLMs** - OpenAI GPT-4o-mini & Google Gemini 2.0 Flash
+- ✨ **Production LLMs** - OpenAI GPT-4o-mini & Google Gemini Flash Lite (`gemini-flash-lite-latest`)
 
 ## 🎉 Phase 1 Complete - Production Ready!
 
-### Core Features (MVP - v0.1.0)
+### Core Features (Current v0.1.0 Release)
 
 **Optimization System:**
 - ✅ `GEPA.optimize/1` - Public API (working!)
@@ -36,13 +40,13 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ State persistence (save/load)
 - ✅ End-to-end integration tested
 
-### Phase 1 Additions (v0.2.0) - NEW! 🎉
+### Phase 1 Additions - NEW! 🎉
 
 **Production LLM Integration:**
 - ✅ `GEPA.LLM` - Unified LLM behavior
 - ✅ `GEPA.LLM.ReqLLM` - Production implementation via ReqLLM
   - OpenAI support (GPT-4o-mini default)
-  - Google Gemini support (Gemini-2.0-Flash-Exp default)
+  - Google Gemini support (gemini-flash-lite-latest)
   - Error handling, retries, timeouts
   - Configurable via environment or runtime
 - ✅ `GEPA.LLM.Mock` - Testing implementation with flexible responses
@@ -58,7 +62,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ Comprehensive examples/README.md guide
 - ✅ Livebook guide with visualizations
 
-**Phase 2 Additions (v0.4.0) - NEW! 🎉**
+**Phase 2 Additions - NEW! 🎉**
 
 **Merge Proposer:**
 - ✅ `GEPA.Proposer.Merge` - Genealogy-based candidate merging
@@ -87,30 +91,30 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - Zero Dialyzer errors
 - TDD methodology throughout
 
-### What's Next? See the [Roadmap](docs/20251029/roadmap.md)
+### What's Next? See the [Roadmap on GitHub](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/roadmap.md)
 
-**✅ Phase 1: Production Viability (v0.2.0)** - COMPLETE!
+**✅ Phase 1: Production Viability** - COMPLETE!
 - ✅ Real LLM integration (OpenAI, Gemini)
 - ✅ Quick start examples (4 scripts + 3 livebooks)
 - ✅ EpochShuffledBatchSampler
 
-**✅ Phase 2: Core Completeness (v0.4.0)** - COMPLETE!
+**✅ Phase 2: Core Completeness** - COMPLETE!
 - ✅ Merge proposer (genealogy-based recombination)
 - ✅ IncrementalEvaluationPolicy (progressive validation)
 - ✅ Additional stop conditions (Timeout, NoImprovement)
 - ✅ Engine integration for merge proposer
 
-**Phase 3: Production Hardening (v0.5.0)** - 8-10 weeks
+**Phase 3: Production Hardening** - 8-10 weeks
 - 📡 Telemetry integration
 - 🎨 Progress tracking
 - 🛡️ Robust error handling
 
-**Phase 4: Ecosystem Expansion (v1.0.0)** - 12-14 weeks
+**Phase 4: Ecosystem Expansion** - 12-14 weeks
 - 🔌 Additional adapters (Generic, RAG)
 - 🚀 Performance optimization (parallel evaluation)
 - 🌟 Community infrastructure
 
-See [Implementation Gap Analysis](docs/20251029/implementation_gap_analysis.md) for detailed comparison with Python GEPA.
+See [Implementation Gap Analysis on GitHub](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/implementation_gap_analysis.md) for detailed comparison with Python GEPA.
 
 ## Quick Start
 
@@ -145,14 +149,14 @@ IO.puts("Best score: #{best_score}")
 IO.puts("Iterations: #{result.i}")
 ```
 
-### With Production LLMs (NEW in v0.2.0!)
+### With Production LLMs (NEW!)
 
 ```elixir
 # OpenAI (GPT-4o-mini) - Requires OPENAI_API_KEY
 llm = GEPA.LLM.ReqLLM.new(provider: :openai)
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
-# Or Gemini (Gemini-2.0-Flash-Exp) - Requires GEMINI_API_KEY
+# Or Gemini (`gemini-flash-lite-latest`) - Requires GEMINI_API_KEY
 llm = GEPA.LLM.ReqLLM.new(provider: :gemini)
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
@@ -166,7 +170,7 @@ adapter = GEPA.Adapters.Basic.new(llm: llm)
 )
 ```
 
-See [examples/](examples/) for complete working examples!
+See [Examples overview](examples/README.md) for complete working examples!
 
 ### Interactive Livebooks (NEW!)
 
@@ -239,15 +243,15 @@ GEPA.Engine ← Behaviors → User Implementations
 ## Documentation
 
 ### Current Status & Planning
-- [Implementation Gap Analysis](docs/20251029/implementation_gap_analysis.md) - Detailed comparison with Python GEPA (~60% complete)
-- [Development Roadmap](docs/20251029/roadmap.md) - Path to v1.0.0 (12-14 weeks)
+- [Implementation Gap Analysis](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/implementation_gap_analysis.md) - Detailed comparison with Python GEPA (~60% complete, hosted on GitHub)
+- [Development Roadmap](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/roadmap.md) - Path to production release (12-14 weeks, hosted on GitHub)
 
 ### Technical Documentation
-- [Complete Integration Guide](docs/20250829/00_complete_integration_guide.md)
+- [Complete Integration Guide](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20250829/00_complete_integration_guide.md)
 - [Technical Design](docs/TECHNICAL_DESIGN.md)
 - [Implementation Status](docs/IMPLEMENTATION_STATUS.md)
 - [LLM Adapter Design](docs/llm_adapter_design.md) - Design for real LLM integration
-- Component analysis (6 detailed documents in `docs/20250829/`)
+- Component analysis (6 detailed documents in the [`docs/20250829/` directory](https://github.com/nshkrdotcom/gepa_ex/tree/main/docs/20250829/))
 
 ## Related Projects
 
@@ -256,5 +260,4 @@ GEPA.Engine ← Behaviors → User Implementations
 
 ## License
 
-MIT License
-
+[MIT License](LICENSE)

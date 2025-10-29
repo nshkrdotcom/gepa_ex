@@ -39,11 +39,15 @@ defmodule GEPA.Strategies.BatchSampler.Simple do
           current_offset: non_neg_integer()
         }
 
+  @spec new() :: t()
+  @spec new(pos_integer()) :: t()
   def new(batch_size \\ 3) do
     %__MODULE__{batch_size: batch_size, current_offset: 0}
   end
 
   @impl true
+  @spec next_batch(t(), GEPA.DataLoader.t(), GEPA.State.t()) ::
+          {[term()], t()}
   def next_batch(sampler, loader, _gepa_state) do
     all_ids = GEPA.DataLoader.all_ids(loader)
     total = length(all_ids)
@@ -136,6 +140,8 @@ defmodule GEPA.Strategies.BatchSampler.EpochShuffled do
   end
 
   @impl true
+  @spec next_batch(t(), GEPA.DataLoader.t(), GEPA.State.t()) ::
+          {[term()], t()}
   def next_batch(sampler, loader, _gepa_state) do
     all_ids = GEPA.DataLoader.all_ids(loader)
 
