@@ -50,12 +50,8 @@ defmodule GEPA.Adapters.Basic do
 
     # Separate outputs, scores, trajectories
     {outputs, scores, trajs} =
-      Enum.reduce(results, {[], [], []}, fn
-        {:ok, output, score, traj}, {outs, scrs, trjs} ->
-          {[output | outs], [score | scrs], [traj | trjs]}
-
-        {:error, _reason}, {outs, scrs, trjs} ->
-          {["error" | outs], [0.0 | scrs], [nil | trjs]}
+      Enum.reduce(results, {[], [], []}, fn {:ok, output, score, traj}, {outs, scrs, trjs} ->
+        {[output | outs], [score | scrs], [traj | trjs]}
       end)
 
     trajectories =
@@ -102,34 +98,30 @@ defmodule GEPA.Adapters.Basic do
     ]
 
     # Call LLM (using struct's client)
-    case GEPA.LLM.Mock.complete(messages) do
-      {:ok, %{content: response}} ->
-        # Check if answer appears in response
-        score =
-          if example[:answer] &&
-               String.contains?(String.downcase(response), String.downcase(example.answer)) do
-            1.0
-          else
-            0.0
-          end
+    {:ok, %{content: response}} = GEPA.LLM.Mock.complete(messages)
 
-        trajectory =
-          if capture_traces do
-            %{
-              input: example.input,
-              expected: example[:answer],
-              response: response,
-              score: score
-            }
-          else
-            nil
-          end
+    # Check if answer appears in response
+    score =
+      if example[:answer] &&
+           String.contains?(String.downcase(response), String.downcase(example.answer)) do
+        1.0
+      else
+        0.0
+      end
 
-        {:ok, response, score, trajectory}
+    trajectory =
+      if capture_traces do
+        %{
+          input: example.input,
+          expected: example[:answer],
+          response: response,
+          score: score
+        }
+      else
+        nil
+      end
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, response, score, trajectory}
   end
 
   defp build_feedback_item(trajectory, score, _current_instruction) do

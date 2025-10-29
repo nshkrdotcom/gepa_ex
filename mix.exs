@@ -2,7 +2,6 @@ defmodule GepaEx.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/your_org/gepa_ex"
 
   def project do
     [
@@ -42,7 +41,12 @@ defmodule GepaEx.MixProject do
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.2"},
 
+      # LLM integration
+      {:req_llm, "~> 1.0.0-rc.7"},
+      {:req, "~> 0.5.0"},
+
       # Development and testing
+      {:mox, "~> 1.1", only: :test},
       {:stream_data, "~> 1.1", only: :test},
       {:excoveralls, "~> 0.18", only: :test},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},

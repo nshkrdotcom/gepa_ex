@@ -117,7 +117,7 @@ defmodule GEPA.Utils.Pareto do
     end
   end
 
-  defp find_next_dominated(fronts, active_programs, dominated) do
+  defp find_next_dominated(fronts, active_programs, _dominated) do
     # Try to find a program that is dominated by the others
     Enum.find_value(active_programs, :none, fn prog ->
       others = active_programs -- [prog]

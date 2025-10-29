@@ -1,0 +1,317 @@
+# Advanced GEPA Optimization - Livebook
+
+```elixir
+Mix.install([
+  {:gepa_ex, path: Path.join(__DIR__, "..")},
+  {:kino, "~> 0.14.0"}
+])
+```
+
+## Advanced Features Demo
+
+This Livebook demonstrates advanced GEPA features:
+- EpochShuffledBatchSampler
+- State persistence
+- Real-time monitoring
+- Result visualization
+
+## Configuration
+
+```elixir
+# Choose your LLM provider
+provider_input = Kino.Input.select("LLM Provider", [
+  {"Mock (instant, no API key)", :mock},
+  {"OpenAI (requires API key)", :openai},
+  {"Gemini (requires API key)", :gemini}
+])
+```
+
+```elixir
+iterations_input = Kino.Input.number("Max Iterations", default: 20)
+batch_size_input = Kino.Input.number("Batch Size", default: 3)
+seed_input = Kino.Input.number("Random Seed", default: 42)
+
+Kino.Layout.grid([
+  iterations_input,
+  batch_size_input,
+  seed_input
+], columns: 3)
+```
+
+## Dataset
+
+```elixir
+# Math word problems
+trainset = [
+  %{
+    input: "Sarah has 3 apples and John gives her 5 more. How many apples does Sarah have?",
+    answer: "8"
+  },
+  %{
+    input: "A train travels 60 miles in 2 hours. What is its average speed in mph?",
+    answer: "30"
+  },
+  %{
+    input: "A rectangle has length 8 cm and width 5 cm. What is its area?",
+    answer: "40"
+  },
+  %{
+    input: "Tom has $50 and spends $18. How much money does he have left?",
+    answer: "32"
+  },
+  %{
+    input: "If there are 24 hours in a day, how many hours are in 3 days?",
+    answer: "72"
+  },
+  %{
+    input: "A pizza is cut into 8 slices. If you eat 3 slices, how many remain?",
+    answer: "5"
+  }
+]
+
+valset = [
+  %{
+    input: "A car travels 150 miles in 3 hours. What is its average speed?",
+    answer: "50"
+  },
+  %{
+    input: "A square has sides of 6 inches. What is its area?",
+    answer: "36"
+  }
+]
+
+Kino.DataTable.new(trainset)
+```
+
+## Initial Candidate
+
+```elixir
+seed_candidate = %{
+  "instruction" => """
+  You are a math tutor. Solve the problem step by step.
+  Provide the final answer as just a number.
+  """
+}
+
+Kino.Markdown.new("""
+**Initial Instruction:**
+
+```
+#{seed_candidate["instruction"]}
+```
+""")
+```
+
+## Run Optimization
+
+```elixir
+# Get configuration
+provider = Kino.Input.read(provider_input)
+max_iterations = Kino.Input.read(iterations_input)
+batch_size = Kino.Input.read(batch_size_input)
+seed = Kino.Input.read(seed_input)
+
+# Create LLM
+llm = case provider do
+  :mock -> GEPA.LLM.Mock.new()
+  :openai -> GEPA.LLM.ReqLLM.new(provider: :openai)
+  :gemini -> GEPA.LLM.ReqLLM.new(provider: :gemini)
+end
+
+# Create adapter
+adapter = GEPA.Adapters.Basic.new(llm: llm)
+
+# Create epoch-shuffled batch sampler
+batch_sampler = GEPA.Strategies.BatchSampler.EpochShuffled.new(
+  minibatch_size: batch_size,
+  seed: seed
+)
+
+# Run optimization
+IO.puts("🚀 Starting optimization with #{provider} provider...")
+
+{:ok, result} = GEPA.optimize(
+  seed_candidate: seed_candidate,
+  trainset: trainset,
+  valset: valset,
+  adapter: adapter,
+  batch_sampler: batch_sampler,
+  max_metric_calls: max_iterations,
+  run_dir: "/tmp/gepa_livebook_#{System.system_time(:second)}"
+)
+
+IO.puts("✅ Complete!")
+
+result
+```
+
+## Results
+
+```elixir
+best_candidate = GEPA.Result.best_candidate(result)
+best_score = GEPA.Result.best_score(result)
+initial_score = result.program_full_scores_val_set[0]
+
+improvement = (best_score - initial_score) * 100
+
+Kino.Markdown.new("""
+## 📊 Optimization Results
+
+| Metric | Value |
+|--------|-------|
+| **Initial Score** | #{Float.round(initial_score, 3)} |
+| **Best Score** | #{Float.round(best_score, 3)} |
+| **Improvement** | +#{Float.round(improvement, 1)} points |
+| **Iterations** | #{result.i} |
+| **Total Evaluations** | #{result.total_num_evals} |
+| **Candidates Tested** | #{length(result.program_candidates)} |
+| **Pareto Front Size** | #{length(result.program_at_pareto_front_valset)} |
+
+### Optimized Instruction
+
+```
+#{best_candidate["instruction"]}
+```
+""")
+```
+
+## Score Progression
+
+```elixir
+# Extract scores in order
+scores =
+  result.program_full_scores_val_set
+  |> Map.to_list()
+  |> Enum.sort_by(fn {idx, _score} -> idx end)
+  |> Enum.map(fn {_idx, score} -> score end)
+
+# Create visualization
+data = Enum.with_index(scores, fn score, idx -> %{iteration: idx, score: score} end)
+
+Kino.DataTable.new(data)
+```
+
+## Pareto Frontier
+
+```elixir
+pareto_programs = result.program_at_pareto_front_valset
+
+pareto_data = Enum.map(pareto_programs, fn idx ->
+  %{
+    program_id: idx,
+    score: result.program_full_scores_val_set[idx],
+    instruction_preview: String.slice(result.program_candidates[idx]["instruction"], 0, 60) <> "..."
+  }
+end)
+
+Kino.Markdown.new("""
+## Pareto Frontier Programs
+
+The Pareto frontier contains #{length(pareto_programs)} programs that are not dominated by others.
+
+""")
+|> then(fn md ->
+  Kino.Layout.grid([
+    md,
+    Kino.DataTable.new(pareto_data)
+  ])
+end)
+```
+
+## Compare Candidates
+
+```elixir
+comparison_data =
+  result.program_candidates
+  |> Enum.with_index()
+  |> Enum.take(min(5, length(result.program_candidates)))
+  |> Enum.map(fn {candidate, idx} ->
+    score = Map.get(result.program_full_scores_val_set, idx, 0)
+
+    %{
+      id: idx,
+      score: Float.round(score, 3),
+      on_pareto: idx in result.program_at_pareto_front_valset,
+      instruction: String.slice(candidate["instruction"], 0, 100) <> "..."
+    }
+  end)
+
+Kino.DataTable.new(comparison_data)
+```
+
+## Try It Yourself!
+
+Now you can:
+
+1. **Adjust parameters** - Change iterations, batch size, or seed above
+2. **Try different LLM** - Switch provider and see how results differ
+3. **Use your own data** - Replace trainset/valset with your task
+4. **Experiment** - See how GEPA evolves instructions!
+
+## Key Insights
+
+```elixir
+Kino.Markdown.new("""
+### How GEPA Works
+
+1. **Reflection**: LLM analyzes mistakes and proposes improvements
+2. **Evolution**: Multiple candidates compete (not just one!)
+3. **Pareto Optimization**: Keeps diverse solutions good at different things
+4. **Feedback-Driven**: Uses actual execution traces to guide search
+
+### Why It's Effective
+
+- 📊 **Multi-objective**: Optimizes across different metrics simultaneously
+- 🧬 **Evolutionary**: Explores many solutions, keeps the best
+- 🔄 **Reflective**: Learns from specific failures, not random mutations
+- 🎯 **Efficient**: Achieves good results with minimal evaluations
+
+### What Makes This Unique
+
+Traditional approaches:
+- RL: Requires thousands of evaluations
+- Manual tuning: Time-consuming and limited
+- Simple prompt engineering: Hit-or-miss
+
+GEPA:
+- Requires 10-50 evaluations
+- Automatic and systematic
+- Leverages rich textual feedback
+
+""")
+```
+
+## Next Steps
+
+```elixir
+Kino.Markdown.new("""
+### Explore More
+
+1. **Real LLM Optimization**
+   - Set OPENAI_API_KEY or GEMINI_API_KEY environment variable
+   - Re-run with OpenAI or Gemini provider
+   - See much better results!
+
+2. **More Examples**
+   - `examples/02_math_problems.exs` - Complete math example
+   - `examples/03_custom_adapter.exs` - Build your own adapter
+   - `examples/04_state_persistence.exs` - Long-running optimizations
+
+3. **Documentation**
+   - `docs/20251029/roadmap.md` - Development roadmap
+   - `docs/20251029/implementation_gap_analysis.md` - Feature comparison
+   - `examples/README.md` - Examples guide
+
+4. **Advanced Livebooks**
+   - `livebooks/02_advanced_optimization.livemd` - This notebook!
+   - `livebooks/03_custom_adapter.livemd` - Build adapters interactively
+
+### Resources
+
+- 📖 [GEPA Paper](https://arxiv.org/abs/2507.19457)
+- 🐍 [Python GEPA](https://github.com/gepa-ai/gepa)
+- 💎 [Elixir Source](https://github.com/yourorg/gepa_ex)
+
+Happy optimizing! 🚀
+""")
+```

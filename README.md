@@ -2,26 +2,28 @@
 
 An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
 
-**Status:** ✅ MVP Complete and Working! | v0.1.0-dev
+**Status:** 🎉 Phase 1 Complete - Production Ready! | v0.2.0-dev
 
 [![Tests](https://img.shields.io/badge/tests-63%2F63%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-74.5%25-brightgreen)]()
+[![Phase 1](https://img.shields.io/badge/Phase%201-Complete-success)]()
 
 ## About GEPA
 
 GEPA optimizes arbitrary systems composed of text components—like AI prompts, code snippets, or textual specs—against any evaluation metric. It employs LLMs to reflect on system behavior, using feedback from execution traces to drive targeted improvements.
 
 This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/gepa), designed to leverage:
-- 🚀 **BEAM concurrency** for 5-10x evaluation speedup
+- 🚀 **BEAM concurrency** for 5-10x evaluation speedup (coming in Phase 4)
 - 🛡️ **OTP supervision** for fault-tolerant external service integration
 - 🔄 **Functional programming** for clean, testable code
-- 📊 **Telemetry** for comprehensive observability
+- 📊 **Telemetry** for comprehensive observability (coming in Phase 3)
+- ✨ **Production LLMs** - OpenAI GPT-4o-mini & Google Gemini 2.0 Flash
 
-## ✅ MVP Implementation Complete! (63/63 Tests Passing)
+## 🎉 Phase 1 Complete - Production Ready!
 
-### Working Features
+### Core Features (MVP - v0.1.0)
 
-**Complete Optimization System:**
+**Optimization System:**
 - ✅ `GEPA.optimize/1` - Public API (working!)
 - ✅ `GEPA.Engine` - Full optimization loop with stop conditions
 - ✅ `GEPA.Proposer.Reflective` - Mutation strategy
@@ -33,23 +35,63 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ State persistence (save/load)
 - ✅ End-to-end integration tested
 
+### Phase 1 Additions (v0.2.0) - NEW! 🎉
+
+**Production LLM Integration:**
+- ✅ `GEPA.LLM` - Unified LLM behavior
+- ✅ `GEPA.LLM.ReqLLM` - Production implementation via ReqLLM
+  - OpenAI support (GPT-4o-mini default)
+  - Google Gemini support (Gemini-2.0-Flash-Exp default)
+  - Error handling, retries, timeouts
+  - Configurable via environment or runtime
+- ✅ `GEPA.LLM.Mock` - Testing implementation with flexible responses
+
+**Advanced Batch Sampling:**
+- ✅ `GEPA.Strategies.BatchSampler.EpochShuffled` - Epoch-based training with shuffling
+- ✅ Reproducible with seed control
+- ✅ Better training dynamics than simple sampling
+
+**Working Examples:**
+- ✅ 4 .exs script examples (quick start, math, custom adapter, persistence)
+- ✅ 3 Livebook notebooks (interactive learning)
+- ✅ Comprehensive examples/README.md guide
+- ✅ Livebook guide with visualizations
+
 **Test Quality:**
-- 63 tests (56 unit + 6 property + 1 doctest)
-- 100% passing
-- 74.5% coverage
+- 126 tests (119 unit + 6 property + 1 doctest)
+- 100% passing ✅
+- 79.1% coverage (excellent!)
 - Property tests with 200+ runs
 - Zero Dialyzer errors
+- Comprehensive Phase 1 feature tests
 
-### Optional Enhancements (Post-MVP)
+### What's Next? See the [Roadmap](docs/20251029/roadmap.md)
 
-- 📋 Merge proposer (genealogy-based recombination)
-- 📋 Full LLM integration (real API calls)
-- 📋 Advanced strategies (EpochShuffled, IncrementalEval)
-- 📋 Additional adapters (DSPy, RAG)
-- 📋 Performance optimization (parallel evaluation)
-- 📋 Telemetry integration
+**✅ Phase 1: Production Viability (v0.2.0)** - COMPLETE!
+- ✅ Real LLM integration (OpenAI, Gemini)
+- ✅ Quick start examples (4 examples)
+- ✅ EpochShuffledBatchSampler
+
+**🔜 Phase 2: Core Completeness (v0.4.0)** - Up Next
+- 🔄 Merge proposer (genealogy-based recombination)
+- 📊 IncrementalEvaluationPolicy
+- 🎯 Instruction proposal templates
+
+**Phase 3: Production Hardening (v0.5.0)** - 8-10 weeks
+- 📡 Telemetry integration
+- 🎨 Progress tracking
+- 🛡️ Robust error handling
+
+**Phase 4: Ecosystem Expansion (v1.0.0)** - 12-14 weeks
+- 🔌 Additional adapters (Generic, RAG)
+- 🚀 Performance optimization (parallel evaluation)
+- 🌟 Community infrastructure
+
+See [Implementation Gap Analysis](docs/20251029/implementation_gap_analysis.md) for detailed comparison with Python GEPA.
 
 ## Quick Start
+
+### With Mock LLM (No API Key Required)
 
 ```elixir
 # Define training data
@@ -60,12 +102,15 @@ trainset = [
 
 valset = [%{input: "What is 5+5?", answer: "10"}]
 
+# Create adapter with mock LLM (for testing)
+adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
+
 # Run optimization
 {:ok, result} = GEPA.optimize(
   seed_candidate: %{"instruction" => "You are a helpful assistant."},
   trainset: trainset,
   valset: valset,
-  adapter: GEPA.Adapters.Basic.new(),
+  adapter: adapter,
   max_metric_calls: 50
 )
 
@@ -75,8 +120,49 @@ best_score = GEPA.Result.best_score(result)
 
 IO.puts("Best score: #{best_score}")
 IO.puts("Iterations: #{result.i}")
-IO.inspect(best_program)
 ```
+
+### With Production LLMs (NEW in v0.2.0!)
+
+```elixir
+# OpenAI (GPT-4o-mini) - Requires OPENAI_API_KEY
+llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+adapter = GEPA.Adapters.Basic.new(llm: llm)
+
+# Or Gemini (Gemini-2.0-Flash-Exp) - Requires GEMINI_API_KEY
+llm = GEPA.LLM.ReqLLM.new(provider: :gemini)
+adapter = GEPA.Adapters.Basic.new(llm: llm)
+
+# Then run optimization as above
+{:ok, result} = GEPA.optimize(
+  seed_candidate: %{"instruction" => "..."},
+  trainset: trainset,
+  valset: valset,
+  adapter: adapter,
+  max_metric_calls: 50
+)
+```
+
+See [examples/](examples/) for complete working examples!
+
+### Interactive Livebooks (NEW!)
+
+For interactive learning and experimentation:
+
+```bash
+# Install Livebook
+mix escript.install hex livebook
+
+# Open a livebook
+livebook server livebooks/01_quick_start.livemd
+```
+
+Available Livebooks:
+- `01_quick_start.livemd` - Interactive introduction
+- `02_advanced_optimization.livemd` - Parameter tuning and visualization
+- `03_custom_adapter.livemd` - Build adapters interactively
+
+See [livebooks/README.md](livebooks/README.md) for details!
 
 ### With State Persistence
 
@@ -129,11 +215,16 @@ GEPA.Engine ← Behaviors → User Implementations
 
 ## Documentation
 
-See `docs/` for comprehensive documentation:
+### Current Status & Planning
+- [Implementation Gap Analysis](docs/20251029/implementation_gap_analysis.md) - Detailed comparison with Python GEPA (~60% complete)
+- [Development Roadmap](docs/20251029/roadmap.md) - Path to v1.0.0 (12-14 weeks)
+
+### Technical Documentation
 - [Complete Integration Guide](docs/20250829/00_complete_integration_guide.md)
 - [Technical Design](docs/TECHNICAL_DESIGN.md)
 - [Implementation Status](docs/IMPLEMENTATION_STATUS.md)
-- Component analysis (6 detailed documents)
+- [LLM Adapter Design](docs/llm_adapter_design.md) - Design for real LLM integration
+- Component analysis (6 detailed documents in `docs/20250829/`)
 
 ## Related Projects
 

@@ -1,0 +1,165 @@
+# GEPA Quick Start - Livebook
+
+```elixir
+Mix.install([
+  {:gepa_ex, path: Path.join(__DIR__, "..")}
+])
+```
+
+## Introduction
+
+Welcome to **GEPA** (Genetic-Pareto) - a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
+
+This Livebook will walk you through a simple optimization in just a few steps!
+
+## Step 1: Define Your Data
+
+Let's start with a simple Q&A task. We'll optimize a system to answer math questions correctly.
+
+```elixir
+# Training data: examples the system will learn from
+trainset = [
+  %{input: "What is 2+2?", answer: "4"},
+  %{input: "What is 5+3?", answer: "8"},
+  %{input: "What is 10-7?", answer: "3"},
+  %{input: "What is 6*2?", answer: "12"}
+]
+
+# Validation data: test the optimized system
+valset = [
+  %{input: "What is 6+4?", answer: "10"},
+  %{input: "What is 8-3?", answer: "5"}
+]
+
+IO.puts("✅ Training examples: #{length(trainset)}")
+IO.puts("✅ Validation examples: #{length(valset)}")
+```
+
+## Step 2: Create Initial Candidate
+
+The "candidate" is the system prompt we want to optimize.
+
+```elixir
+seed_candidate = %{
+  "instruction" => "You are a helpful assistant. Answer questions accurately."
+}
+
+IO.puts("Initial instruction:")
+IO.puts(seed_candidate["instruction"])
+```
+
+## Step 3: Choose LLM Provider
+
+You can use:
+- **Mock LLM** (instant, no API key needed) - for learning
+- **OpenAI** (requires OPENAI_API_KEY)
+- **Gemini** (requires GEMINI_API_KEY)
+
+```elixir
+# Choose one:
+
+# Option 1: Mock LLM (instant, no API key)
+llm = GEPA.LLM.Mock.new()
+
+# Option 2: OpenAI (uncomment and set API key)
+# llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+
+# Option 3: Gemini (uncomment and set API key)
+# llm = GEPA.LLM.ReqLLM.new(provider: :gemini)
+
+IO.puts("✅ LLM provider configured")
+```
+
+## Step 4: Create Adapter
+
+The adapter connects GEPA to your system.
+
+```elixir
+adapter = GEPA.Adapters.Basic.new(llm: llm)
+
+IO.puts("✅ Adapter created")
+```
+
+## Step 5: Run Optimization!
+
+Now let's optimize the instruction!
+
+```elixir
+IO.puts("🚀 Starting optimization...\n")
+
+{:ok, result} = GEPA.optimize(
+  seed_candidate: seed_candidate,
+  trainset: trainset,
+  valset: valset,
+  adapter: adapter,
+  max_metric_calls: 15
+)
+
+IO.puts("✅ Optimization complete!")
+```
+
+## Step 6: Analyze Results
+
+```elixir
+best_candidate = GEPA.Result.best_candidate(result)
+best_score = GEPA.Result.best_score(result)
+
+IO.puts("""
+📊 Results
+==========
+
+Best validation score: #{Float.round(best_score, 3)}
+Iterations: #{result.i}
+Total evaluations: #{result.total_num_evals}
+
+Optimized instruction:
+#{best_candidate["instruction"]}
+""")
+```
+
+## Step 7: Visualize Progress (Optional)
+
+```elixir
+# Plot score over time
+scores = result.program_full_scores_val_set |> Map.values() |> Enum.sort()
+
+IO.puts("""
+📈 Score progression:
+#{Enum.map_join(Enum.with_index(scores), "\n", fn {score, i} ->
+  "  Iteration #{i}: #{Float.round(score, 3)} #{"█" |> String.duplicate(round(score * 50))}"
+end)}
+""")
+```
+
+## Next Steps
+
+Now that you've run your first optimization:
+
+1. **Try with real LLM**: Uncomment OpenAI or Gemini in Step 3
+2. **Use your own data**: Replace trainset/valset with your task
+3. **Increase iterations**: Set `max_metric_calls: 50`
+4. **Try other examples**: See `examples/` directory
+
+## Learn More
+
+- **Examples**: See `/examples/` for more use cases
+- **Documentation**: Check `/docs/` for detailed guides
+- **Roadmap**: See `docs/20251029/roadmap.md`
+- **Custom Adapters**: See `examples/03_custom_adapter.exs`
+
+## Key Concepts
+
+**GEPA optimizes by:**
+1. Evaluating current instruction on training data
+2. Reflecting on mistakes using LLM
+3. Proposing improved instruction
+4. Testing on validation data
+5. Keeping best candidates (Pareto frontier)
+6. Repeating until budget exhausted
+
+**Why it works:**
+- LLM learns from specific failures
+- Pareto optimization keeps diverse solutions
+- Reflection leverages task-specific feedback
+
+Happy optimizing! 🚀

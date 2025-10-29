@@ -35,7 +35,6 @@ defmodule GEPA.Strategies.CandidateSelector.Pareto do
   @behaviour GEPA.Strategies.CandidateSelector
 
   alias GEPA.Utils.Pareto
-  alias GEPA.State
 
   @impl true
   def select(state, rand_state) do
@@ -69,8 +68,6 @@ defmodule GEPA.Strategies.CandidateSelector.CurrentBest do
   """
 
   @behaviour GEPA.Strategies.CandidateSelector
-
-  alias GEPA.State
 
   @impl true
   def select(state, rand_state) do

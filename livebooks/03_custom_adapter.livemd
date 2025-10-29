@@ -1,0 +1,369 @@
+# Building Custom Adapters - Livebook
+
+```elixir
+Mix.install([
+  {:gepa_ex, path: Path.join(__DIR__, "..")},
+  {:kino, "~> 0.14.0"}
+])
+```
+
+## Introduction
+
+This Livebook shows you how to create **custom adapters** for GEPA to optimize your specific systems.
+
+You'll learn to:
+- Implement the `GEPA.Adapter` behavior
+- Define custom evaluation logic
+- Extract component-specific feedback
+- Integrate with your own systems
+
+## Example: Sentiment Classification
+
+Let's build an adapter that optimizes sentiment classification!
+
+## Step 1: Define Custom Adapter
+
+```elixir
+defmodule SentimentAdapter do
+  @moduledoc """
+  Custom adapter for sentiment classification.
+
+  Demonstrates:
+  - Custom evaluation (accuracy for sentiment)
+  - Component-specific trace extraction
+  - Domain scoring logic
+  """
+
+  @behaviour GEPA.Adapter
+
+  defstruct [:llm]
+
+  def new(opts \\ []) do
+    %__MODULE__{
+      llm: Keyword.get(opts, :llm, GEPA.LLM.Mock.new())
+    }
+  end
+
+  @impl true
+  def evaluate(%__MODULE__{} = adapter, candidate, batch, _opts) do
+    # Evaluate each example
+    results = Enum.map(batch, fn example ->
+      prompt = build_prompt(candidate["instruction"], example.text)
+
+      # Get LLM response
+      {:ok, response} = GEPA.LLM.complete(adapter.llm, prompt)
+
+      # Parse sentiment
+      predicted = extract_sentiment(response)
+      correct = predicted == example.sentiment
+
+      %{
+        input: example.text,
+        expected: example.sentiment,
+        predicted: predicted,
+        correct?: correct,
+        score: if(correct, do: 1.0, else: 0.0),
+        trace: %{
+          prompt: prompt,
+          response: response,
+          component: "instruction"
+        }
+      }
+    end)
+
+    outputs = Enum.map(results, &Map.take(&1, [:predicted, :response]))
+    scores = Enum.map(results, & &1.score)
+    traces = Enum.map(results, & &1.trace)
+
+    %GEPA.EvaluationBatch{
+      outputs: outputs,
+      scores: scores,
+      traces: traces
+    }
+  end
+
+  @impl true
+  def extract_component_context(
+        _adapter,
+        _candidate,
+        _component_name,
+        _batch,
+        traces,
+        scores
+      ) do
+    # Build feedback for reflection
+    feedback =
+      Enum.zip(traces, scores)
+      |> Enum.map(fn {trace, score} ->
+        status = if score > 0.5, do: "✓ Correct", else: "✗ Wrong"
+
+        """
+        #{status}
+        Text: #{trace.prompt |> String.split("\n") |> Enum.at(2)}
+        Response: #{trace.response |> String.slice(0, 100)}
+        """
+      end)
+      |> Enum.join("\n\n")
+
+    {:ok, feedback}
+  end
+
+  # Helper functions
+  defp build_prompt(instruction, text) do
+    """
+    #{instruction}
+
+    Text: #{text}
+
+    Classify the sentiment as: positive, negative, or neutral
+    """
+  end
+
+  defp extract_sentiment(response) do
+    response_lower = String.downcase(response)
+
+    cond do
+      String.contains?(response_lower, "positive") -> "positive"
+      String.contains?(response_lower, "negative") -> "negative"
+      true -> "neutral"
+    end
+  end
+end
+
+IO.puts("✅ Custom adapter defined!")
+```
+
+## Step 2: Create Dataset
+
+```elixir
+trainset = [
+  %{text: "I love this product! It's amazing!", sentiment: "positive"},
+  %{text: "Terrible experience. Very disappointed.", sentiment: "negative"},
+  %{text: "It's okay, nothing special.", sentiment: "neutral"},
+  %{text: "Best purchase ever! Highly recommend.", sentiment: "positive"},
+  %{text: "Waste of money. Do not buy.", sentiment: "negative"},
+  %{text: "Pretty good, worth trying.", sentiment: "positive"},
+  %{text: "Could be better but acceptable.", sentiment: "neutral"}
+]
+
+valset = [
+  %{text: "Great quality and fast shipping!", sentiment: "positive"},
+  %{text: "Not worth the price at all.", sentiment: "negative"}
+]
+
+Kino.DataTable.new(trainset)
+```
+
+## Step 3: Seed Instruction
+
+```elixir
+seed_candidate = %{
+  "instruction" => "Analyze the sentiment of the following text."
+}
+
+Kino.Markdown.new("""
+**Seed Instruction:**
+```
+#{seed_candidate["instruction"]}
+```
+
+Pretty basic, right? Let's see how GEPA improves it!
+""")
+```
+
+## Step 4: Run Optimization
+
+```elixir
+# Create smart mock that actually classifies
+smart_llm = GEPA.LLM.Mock.new(response_fn: fn prompt ->
+  cond do
+    String.contains?(prompt, "love") or String.contains?(prompt, "amazing") or
+      String.contains?(prompt, "Great") or String.contains?(prompt, "Best") or
+      String.contains?(prompt, "worth trying") ->
+      "The sentiment is positive."
+
+    String.contains?(prompt, "Terrible") or String.contains?(prompt, "disappointed") or
+      String.contains?(prompt, "Waste") or String.contains?(prompt, "Not worth") ->
+      "The sentiment is negative."
+
+    true ->
+      "The sentiment is neutral."
+  end
+end)
+
+# Create custom adapter
+adapter = SentimentAdapter.new(llm: smart_llm)
+
+IO.puts("🚀 Running optimization...")
+
+{:ok, result} = GEPA.optimize(
+  seed_candidate: seed_candidate,
+  trainset: trainset,
+  valset: valset,
+  adapter: adapter,
+  max_metric_calls: 15
+)
+
+IO.puts("✅ Optimization complete!")
+```
+
+## Results
+
+```elixir
+best_score = GEPA.Result.best_score(result)
+best_candidate = GEPA.Result.best_candidate(result)
+
+Kino.Markdown.new("""
+## 🎯 Results
+
+**Best Validation Score:** #{Float.round(best_score, 3)}
+
+**Optimized Instruction:**
+```
+#{best_candidate["instruction"]}
+```
+
+**What Changed:**
+- GEPA added domain-specific guidance
+- Incorporated feedback from mistakes
+- Improved clarity and specificity
+
+""")
+```
+
+## Understanding the Adapter
+
+```elixir
+Kino.Markdown.new("""
+## 🔧 Adapter Components
+
+### 1. evaluate/4
+- **Purpose**: Score candidate on batch of examples
+- **Input**: candidate, batch, opts
+- **Output**: EvaluationBatch with scores and traces
+- **Customize**: Your scoring logic goes here!
+
+### 2. extract_component_context/6
+- **Purpose**: Extract feedback for LLM reflection
+- **Input**: traces, scores
+- **Output**: Textual feedback string
+- **Customize**: Format feedback for your domain!
+
+### 3. Helper Functions
+- `build_prompt/2` - Format prompt for your system
+- `extract_sentiment/1` - Parse system output
+- Domain-specific logic
+
+## 💡 Customization Points
+
+To adapt this for your use case:
+
+1. **Change the task**
+   ```elixir
+   %{input: "your input", expected: "expected output"}
+   ```
+
+2. **Modify evaluation**
+   ```elixir
+   correct = your_scoring_logic(predicted, expected)
+   ```
+
+3. **Adjust feedback format**
+   ```elixir
+   feedback = format_for_your_domain(traces, scores)
+   ```
+
+4. **Add components**
+   ```elixir
+   candidate = %{
+     "system_prompt" => "...",
+     "few_shot_examples" => "...",
+     "output_format" => "..."
+   }
+   ```
+
+## 🎓 Common Adapter Patterns
+
+### Pattern 1: API-Based System
+```elixir
+def evaluate(adapter, candidate, batch, _opts) do
+  # Call your API with candidate configuration
+  results = Enum.map(batch, fn input ->
+    response = YourAPI.call(input, config: candidate)
+    score = YourAPI.evaluate(response, input.expected)
+    %{score: score, trace: response}
+  end)
+  # ...
+end
+```
+
+### Pattern 2: Code Generation
+```elixir
+def evaluate(adapter, candidate, batch, _opts) do
+  # Generate code with candidate prompt
+  results = Enum.map(batch, fn problem ->
+    code = LLM.generate_code(problem, prompt: candidate["instruction"])
+    {passed, output} = run_tests(code, problem.tests)
+    %{score: if(passed, do: 1.0, else: 0.0), trace: output}
+  end)
+  # ...
+end
+```
+
+### Pattern 3: Multi-Component System
+```elixir
+candidate = %{
+  "query_rewriter" => "...",
+  "retrieval_prompt" => "...",
+  "answer_generator" => "..."
+}
+
+# GEPA will optimize all components!
+```
+
+""")
+```
+
+## Try Building Your Own!
+
+Use this notebook as a template:
+
+1. Copy the SentimentAdapter module
+2. Modify for your domain
+3. Create your dataset
+4. Run optimization
+5. Analyze results
+
+The adapter interface is simple but powerful! 🚀
+
+## Summary
+
+```elixir
+Kino.Markdown.new("""
+### You Learned
+
+✅ How to implement GEPA.Adapter behavior
+✅ Custom evaluation logic
+✅ Trace extraction for feedback
+✅ Domain-specific optimizations
+
+### Key Takeaways
+
+1. **Adapters are simple**: Just 2 functions (evaluate + extract_context)
+2. **Flexible**: Works with any system that uses text
+3. **Powerful**: GEPA handles the optimization logic
+4. **Extensible**: Add as many components as needed
+
+### What's Possible
+
+- Optimize API systems
+- Improve code generation
+- Tune multi-turn agents
+- Enhance RAG pipelines
+- Domain-specific tasks
+- Multi-component systems
+
+**The possibilities are endless!** 🌟
+
+""")
+```
