@@ -1,7 +1,7 @@
 defmodule GepaEx.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/nshkrdotcom/gepa_ex"
 
   def project do
@@ -81,11 +81,6 @@ defmodule GepaEx.MixProject do
         {"README.md", title: "Overview"},
         "docs/PROJECT_SUMMARY.md",
         "docs/TECHNICAL_DESIGN.md",
-        "docs/IMPLEMENTATION_STATUS.md",
-        "docs/MVP_COMPLETE.md",
-        "docs/COMPLETION_REPORT.md",
-        "docs/SESSION_COMPLETE.md",
-        "docs/FINAL_STATUS.md",
         "docs/llm_adapter_design.md",
         {"examples/README.md", title: "Examples"},
         {"livebooks/README.md", title: "Livebooks"},
@@ -96,13 +91,6 @@ defmodule GepaEx.MixProject do
         "Design Docs": [
           "docs/TECHNICAL_DESIGN.md",
           "docs/llm_adapter_design.md"
-        ],
-        "Status Reports": [
-          "docs/IMPLEMENTATION_STATUS.md",
-          "docs/MVP_COMPLETE.md",
-          "docs/COMPLETION_REPORT.md",
-          "docs/SESSION_COMPLETE.md",
-          "docs/FINAL_STATUS.md"
         ],
         Examples: [
           "examples/README.md",

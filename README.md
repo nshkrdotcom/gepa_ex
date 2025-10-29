@@ -4,15 +4,26 @@
 
 # GEPA for Elixir
 
+[![Hex.pm](https://img.shields.io/hexpm/v/gepa_ex.svg)](https://hex.pm/packages/gepa_ex)
 [![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
 [![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
 [![Tests](https://img.shields.io/badge/tests-218%2F218%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
-[![Phase 1](https://img.shields.io/badge/Phase%201-Complete-success)]()
-[![Phase 2](https://img.shields.io/badge/Phase%202-Complete-success)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
 
 An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
+
+## Installation
+
+Add `gepa_ex` to your list of dependencies in `mix.exs`:
+
+```elixir
+def deps do
+  [
+    {:gepa_ex, "~> 0.1.1"}
+  ]
+end
+```
 
 ## About GEPA
 
@@ -25,9 +36,9 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - 📊 **Telemetry** for comprehensive observability (coming in Phase 3)
 - ✨ **Production LLMs** - OpenAI GPT-4o-mini & Google Gemini Flash Lite (`gemini-flash-lite-latest`)
 
-## 🎉 Phase 1 Complete - Production Ready!
+## Production Ready
 
-### Core Features (Current v0.1.0 Release)
+### Core Features
 
 **Optimization System:**
 - ✅ `GEPA.optimize/1` - Public API (working!)
@@ -92,7 +103,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - Zero Dialyzer errors
 - TDD methodology throughout
 
-### What's Next? See the [Roadmap on GitHub](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/roadmap.md)
+## What's Next?
 
 **✅ Phase 1: Production Viability** - COMPLETE!
 - ✅ Real LLM integration (OpenAI, Gemini)
@@ -114,8 +125,6 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - 🔌 Additional adapters (Generic, RAG)
 - 🚀 Performance optimization (parallel evaluation)
 - 🌟 Community infrastructure
-
-See [Implementation Gap Analysis on GitHub](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/implementation_gap_analysis.md) for detailed comparison with Python GEPA.
 
 ## Quick Start
 
@@ -243,16 +252,22 @@ GEPA.Engine ← Behaviors → User Implementations
 
 ## Documentation
 
-### Current Status & Planning
-- [Implementation Gap Analysis](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/implementation_gap_analysis.md) - Detailed comparison with Python GEPA (~60% complete, hosted on GitHub)
-- [Development Roadmap](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20251029/roadmap.md) - Path to production release (12-14 weeks, hosted on GitHub)
-
 ### Technical Documentation
-- [Complete Integration Guide](https://github.com/nshkrdotcom/gepa_ex/blob/main/docs/20250829/00_complete_integration_guide.md)
 - [Technical Design](docs/TECHNICAL_DESIGN.md)
 - [Implementation Status](docs/IMPLEMENTATION_STATUS.md)
 - [LLM Adapter Design](docs/llm_adapter_design.md) - Design for real LLM integration
-- Component analysis (6 detailed documents in the [`docs/20250829/` directory](https://github.com/nshkrdotcom/gepa_ex/tree/main/docs/20250829/))
+
+## Changelog
+
+### v0.1.1 (2025-10-29)
+- Documentation cleanup: removed broken links to non-existent documentation files
+
+### v0.1.0 (2025-10-29)
+- Initial release with Phase 1 & 2 complete
+- Production LLM integration (OpenAI GPT-4o-mini, Google Gemini Flash Lite)
+- Core optimization engine with reflective and merge proposers
+- Incremental evaluation and advanced stop conditions
+- 218 tests passing with 75.4% coverage
 
 ## Related Projects
 
