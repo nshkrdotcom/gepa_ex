@@ -356,7 +356,7 @@ defmodule GEPA.Proposer.Merge do
     # Each element is a map of val_id => score
     state.prog_candidate_val_subscores
     |> Enum.with_index()
-    |> Enum.map(fn {score_map, idx} ->
+    |> Enum.map(fn {_score_map, idx} ->
       {avg, _count} = State.get_program_score(state, idx)
       {idx, avg}
     end)

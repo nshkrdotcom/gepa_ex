@@ -2,11 +2,12 @@
 
 An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
 
-**Status:** 🎉 Phase 1 Complete - Production Ready! | v0.2.0-dev
+**Status:** 🎉 Phase 2 Complete - Core Features! | v0.4.0-dev
 
-[![Tests](https://img.shields.io/badge/tests-63%2F63%20passing-brightgreen)]()
-[![Coverage](https://img.shields.io/badge/coverage-74.5%25-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-218%2F218%20passing-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![Phase 1](https://img.shields.io/badge/Phase%201-Complete-success)]()
+[![Phase 2](https://img.shields.io/badge/Phase%202-Complete-success)]()
 
 ## About GEPA
 
@@ -57,25 +58,47 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ Comprehensive examples/README.md guide
 - ✅ Livebook guide with visualizations
 
+**Phase 2 Additions (v0.4.0) - NEW! 🎉**
+
+**Merge Proposer:**
+- ✅ `GEPA.Proposer.Merge` - Genealogy-based candidate merging
+- ✅ `GEPA.Utils` - Pareto dominator detection (93.3% coverage)
+- ✅ `GEPA.Proposer.MergeUtils` - Ancestry tracking (92.3% coverage)
+- ✅ Engine integration with merge scheduling
+- ✅ 44 comprehensive tests (34 unit + 10 properties)
+
+**Incremental Evaluation:**
+- ✅ `GEPA.Strategies.EvaluationPolicy.Incremental` - Progressive validation
+- ✅ Configurable sample sizes and thresholds
+- ✅ Reduces computation on large validation sets
+- ✅ 12 tests
+
+**Advanced Stop Conditions:**
+- ✅ `GEPA.StopCondition.Timeout` - Time-based stopping
+- ✅ `GEPA.StopCondition.NoImprovement` - Early stopping
+- ✅ Flexible time units and patience settings
+- ✅ 9 tests
+
 **Test Quality:**
-- 126 tests (119 unit + 6 property + 1 doctest)
+- 201 tests (185 unit + 16 properties + 1 doctest)
 - 100% passing ✅
-- 79.1% coverage (excellent!)
-- Property tests with 200+ runs
+- 75.4% coverage (excellent!)
+- Property tests with 1,600+ runs
 - Zero Dialyzer errors
-- Comprehensive Phase 1 feature tests
+- TDD methodology throughout
 
 ### What's Next? See the [Roadmap](docs/20251029/roadmap.md)
 
 **✅ Phase 1: Production Viability (v0.2.0)** - COMPLETE!
 - ✅ Real LLM integration (OpenAI, Gemini)
-- ✅ Quick start examples (4 examples)
+- ✅ Quick start examples (4 scripts + 3 livebooks)
 - ✅ EpochShuffledBatchSampler
 
-**🔜 Phase 2: Core Completeness (v0.4.0)** - Up Next
-- 🔄 Merge proposer (genealogy-based recombination)
-- 📊 IncrementalEvaluationPolicy
-- 🎯 Instruction proposal templates
+**✅ Phase 2: Core Completeness (v0.4.0)** - COMPLETE!
+- ✅ Merge proposer (genealogy-based recombination)
+- ✅ IncrementalEvaluationPolicy (progressive validation)
+- ✅ Additional stop conditions (Timeout, NoImprovement)
+- ✅ Engine integration for merge proposer
 
 **Phase 3: Production Hardening (v0.5.0)** - 8-10 weeks
 - 📡 Telemetry integration

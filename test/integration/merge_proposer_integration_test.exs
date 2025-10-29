@@ -4,7 +4,7 @@ defmodule Integration.MergeProposerIntegrationTest do
   # TDD RED PHASE: Engine integration with merge proposer
   # These tests verify merge proposer works end-to-end with Engine
 
-  alias GEPA.{Engine, State, EvaluationBatch, DataLoader, Adapter}
+  alias GEPA.{Engine, State, DataLoader, Adapter}
   alias GEPA.Proposer.{Reflective, Merge}
 
   describe "Engine with merge proposer - RED PHASE" do

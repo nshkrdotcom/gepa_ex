@@ -82,7 +82,7 @@ defmodule GEPA.Engine do
             new_state = accept_proposal(state, proposal, config)
 
             # Notify merge proposer that a new program was found
-            config =
+            new_config =
               if config[:merge_proposer] do
                 merge_proposer = config.merge_proposer
                 updated_merge = %{merge_proposer | last_iter_found_new_program: true}
@@ -92,7 +92,7 @@ defmodule GEPA.Engine do
                 config
               end
 
-            {:cont, new_state, config}
+            {:cont, new_state, new_config}
           else
             Logger.debug("Rejecting proposal at iteration #{state.i}")
             # Reject proposal, continue
@@ -104,21 +104,6 @@ defmodule GEPA.Engine do
           # Still update eval counter for the attempt
           state = %{state | total_num_evals: state.total_num_evals + 1}
           {:cont, state, config}
-      end
-      |> case do
-        {:cont, new_state, new_config} ->
-          # Return with potentially updated config
-          {:cont, {new_state, new_config}}
-
-        {:cont, new_state} ->
-          {:cont, {new_state, config}}
-
-        other ->
-          other
-      end
-      |> case do
-        {:cont, {new_state, new_config}} -> {:cont, new_state, new_config}
-        other -> other
       end
     end
   end

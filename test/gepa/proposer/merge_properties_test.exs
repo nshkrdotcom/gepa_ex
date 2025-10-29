@@ -155,7 +155,7 @@ defmodule GEPA.Proposer.MergePropertiesTest do
     end
 
     property "returns true when at least one component differs usefully" do
-      check all(num_components <- integer(1..3), max_runs: 50) do
+      check all(_num_components <- integer(1..3), max_runs: 50) do
         # Create candidates where first component has useful difference
         candidates = [
           # ancestor
