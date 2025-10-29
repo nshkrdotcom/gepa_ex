@@ -48,15 +48,28 @@ defmodule GEPA.Engine do
       state = %{state | i: state.i + 1}
       Logger.debug("Starting iteration #{state.i}")
 
-      # Get proposer (simplified - create inline for MVP)
-      proposer = create_proposer(config)
+      # Try merge proposer first (if configured and conditions met)
+      {proposal, state, config} =
+        if config[:merge_proposer] do
+          try_merge_proposal(state, config)
+        else
+          {nil, state, config}
+        end
 
-      # Propose new candidate
-      case GEPA.Proposer.Reflective.propose(proposer, state) do
-        {:ok, proposal} ->
-          Logger.debug("Proposal generated for iteration #{state.i}")
+      # If no merge proposal, try reflective proposer
+      {proposal, state} =
+        if is_nil(proposal) do
+          try_reflective_proposal(state, config)
+        else
+          {proposal, state}
+        end
 
-          # Update eval counter (proposer evaluated on minibatch twice: before and after)
+      # Handle proposal
+      case proposal do
+        %GEPA.CandidateProposal{} ->
+          Logger.debug("Proposal generated for iteration #{state.i} (#{proposal.tag})")
+
+          # Update eval counter
           num_subsample_evals =
             length(proposal.subsample_scores_before) + length(proposal.subsample_scores_after)
 
@@ -64,25 +77,76 @@ defmodule GEPA.Engine do
 
           # Check acceptance
           if GEPA.CandidateProposal.should_accept?(proposal) do
-            Logger.info("Accepting proposal at iteration #{state.i}")
-            # Evaluate on full validation set
-            {:cont, accept_proposal(state, proposal, config)}
+            Logger.info("Accepting #{proposal.tag} proposal at iteration #{state.i}")
+            # Evaluate on full validation set and update state
+            new_state = accept_proposal(state, proposal, config)
+
+            # Notify merge proposer that a new program was found
+            config =
+              if config[:merge_proposer] do
+                merge_proposer = config.merge_proposer
+                updated_merge = %{merge_proposer | last_iter_found_new_program: true}
+                updated_merge = GEPA.Proposer.Merge.schedule_if_needed(updated_merge)
+                %{config | merge_proposer: updated_merge}
+              else
+                config
+              end
+
+            {:cont, new_state, config}
           else
             Logger.debug("Rejecting proposal at iteration #{state.i}")
             # Reject proposal, continue
-            {:cont, state}
+            {:cont, state, config}
           end
 
-        :none ->
+        nil ->
           Logger.debug("No proposal generated at iteration #{state.i}")
           # Still update eval counter for the attempt
           state = %{state | total_num_evals: state.total_num_evals + 1}
-          {:cont, state}
-
-        {:error, reason} ->
-          Logger.warning("Proposal failed at iteration #{state.i}: #{inspect(reason)}")
-          {:cont, state}
+          {:cont, state, config}
       end
+      |> case do
+        {:cont, new_state, new_config} ->
+          # Return with potentially updated config
+          {:cont, {new_state, new_config}}
+
+        {:cont, new_state} ->
+          {:cont, {new_state, config}}
+
+        other ->
+          other
+      end
+      |> case do
+        {:cont, {new_state, new_config}} -> {:cont, new_state, new_config}
+        other -> other
+      end
+    end
+  end
+
+  defp try_merge_proposal(state, config) do
+    merge_proposer = config.merge_proposer
+
+    {proposal, updated_proposer} = GEPA.Proposer.Merge.propose(merge_proposer, state)
+
+    config = %{config | merge_proposer: updated_proposer}
+
+    {proposal, state, config}
+  end
+
+  defp try_reflective_proposal(state, config) do
+    # Use configured reflective proposer or create one
+    proposer = config[:reflective_proposer] || create_proposer(config)
+
+    case GEPA.Proposer.Reflective.propose(proposer, state) do
+      {:ok, proposal} ->
+        {proposal, state}
+
+      :none ->
+        {nil, state}
+
+      {:error, reason} ->
+        Logger.warning("Reflective proposal failed: #{inspect(reason)}")
+        {nil, state}
     end
   end
 
@@ -124,8 +188,16 @@ defmodule GEPA.Engine do
       state
     else
       case run_iteration(state, config) do
-        {:cont, new_state} ->
+        {:cont, new_state, new_config} ->
           # Save state periodically
+          if config[:run_dir] && rem(new_state.i, 5) == 0 do
+            save_state(new_state, config.run_dir)
+          end
+
+          optimization_loop(new_state, new_config, max_iters)
+
+        {:cont, new_state} ->
+          # Backward compatibility - config not updated
           if config[:run_dir] && rem(new_state.i, 5) == 0 do
             save_state(new_state, config.run_dir)
           end
