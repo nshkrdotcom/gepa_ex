@@ -4,14 +4,15 @@
 
 # GEPA for Elixir
 
-**Current version:** v0.1.0
-
-An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
-
+[![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
+[![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
 [![Tests](https://img.shields.io/badge/tests-218%2F218%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![Phase 1](https://img.shields.io/badge/Phase%201-Complete-success)]()
 [![Phase 2](https://img.shields.io/badge/Phase%202-Complete-success)]()
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
+
+An Elixir implementation of GEPA (Genetic-Pareto), a framework for optimizing text-based system components using LLM-based reflection and Pareto-efficient evolutionary search.
 
 ## About GEPA
 
