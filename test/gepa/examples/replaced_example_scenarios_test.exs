@@ -78,7 +78,12 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
     end
 
     test "state persistence flow remains covered by tests" do
-      run_dir = Path.join(System.tmp_dir!(), "gepa-example-persistence-#{System.unique_integer([:positive])}")
+      run_dir =
+        Path.join(
+          System.tmp_dir!(),
+          "gepa-example-persistence-#{System.unique_integer([:positive])}"
+        )
+
       on_exit(fn -> File.rm_rf(run_dir) end)
 
       llm = GEPA.LLM.Mock.new(response_fn: fn _prompt -> "The answer is Paris." end)
@@ -100,9 +105,11 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
 
     test "custom adapter sentiment flow remains covered by tests" do
       llm =
-        GEPA.LLM.Mock.new(response_fn: fn prompt ->
-          if String.contains?(prompt, "excellent"), do: "positive", else: "negative"
-        end)
+        GEPA.LLM.Mock.new(
+          response_fn: fn prompt ->
+            if String.contains?(prompt, "excellent"), do: "positive", else: "negative"
+          end
+        )
 
       adapter = %SentimentAdapter{llm: llm}
 
