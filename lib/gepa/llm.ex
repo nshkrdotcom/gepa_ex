@@ -22,7 +22,7 @@ defmodule GEPA.LLM do
       config :gepa_ex, :llm,
         provider: :openai,
         api_key: "sk-...",
-        model: "gpt-4o-mini",
+        model: "gpt-5.4-mini",
         temperature: 0.7
 
   Or at runtime:
@@ -30,7 +30,7 @@ defmodule GEPA.LLM do
       llm = GEPA.LLM.req_llm(
         :gemini,
         api_key: "...",
-        model: "gemini-2.0-flash-lite"
+        model: "gemini-flash-lite-latest"
       )
 
       {:ok, response} = GEPA.LLM.complete(llm, prompt, temperature: 0.9)

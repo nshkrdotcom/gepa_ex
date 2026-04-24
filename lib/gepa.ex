@@ -20,7 +20,7 @@ defmodule GEPA do
 
   ## With LLM-based Reflection
 
-      llm = GEPA.LLM.req_llm(:openai, model: "gpt-4o-mini")
+      llm = GEPA.LLM.req_llm(:openai, model: "gpt-5.4-mini")
 
       {:ok, result} = GEPA.optimize(
         seed_candidate: %{"instruction" => "You are a helpful assistant."},

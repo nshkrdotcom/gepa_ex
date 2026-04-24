@@ -8,7 +8,7 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm = ReqLLM.new(provider: :openai)
 
       assert llm.provider == :openai
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
       assert llm.temperature == 0.7
       assert llm.max_tokens == 2000
       assert llm.timeout == 60_000
@@ -18,7 +18,7 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm = ReqLLM.new(provider: :gemini)
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-2.0-flash-lite"
+      assert llm.model == "gemini-flash-lite-latest"
       assert llm.temperature == 0.7
       assert llm.max_tokens == 2000
     end
@@ -83,27 +83,27 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm =
         ReqLLM.new(
           provider: :openai,
-          model: "gpt-4o-mini",
+          model: "gpt-5.4-mini",
           temperature: 0.7,
           api_key: "default-key"
         )
 
       # Test that complete would merge options correctly
       # We can't actually call complete without mocking HTTP, but we can test the struct
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
       assert llm.temperature == 0.7
     end
   end
 
   describe "model defaults" do
-    test "OpenAI default model is gpt-4o-mini" do
+    test "OpenAI default model is gpt-5.4-mini" do
       llm = ReqLLM.new(provider: :openai)
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
     end
 
-    test "Gemini default model is gemini-2.0-flash-lite" do
+    test "Gemini default model is gemini-flash-lite-latest" do
       llm = ReqLLM.new(provider: :gemini)
-      assert llm.model == "gemini-2.0-flash-lite"
+      assert llm.model == "gemini-flash-lite-latest"
     end
 
     test "Anthropic default model is claude-haiku-4-5" do

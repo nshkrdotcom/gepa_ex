@@ -267,7 +267,7 @@ selector =
 Use an LLM to propose improved component instructions based on reflective feedback. You can also provide a custom proposal template.
 
 ```elixir
-reflection_llm = GEPA.LLM.req_llm(:openai, api_key: "sk-...", model: "gpt-4o-mini")
+reflection_llm = GEPA.LLM.req_llm(:openai, api_key: "sk-...", model: "gpt-5.4-mini")
 
 custom_template = """
 Improve {component_name}:

@@ -13,7 +13,7 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
       llm =
         ReqLLM.new(
           provider: :openai,
-          model: "gpt-4o-mini",
+          model: "gpt-5.4-mini",
           api_key: "test-key",
           temperature: 0.8,
           max_tokens: 500
@@ -21,7 +21,7 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
 
       # We can verify the struct is properly configured
       assert llm.provider == :openai
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
       assert llm.api_key == "test-key"
       assert llm.temperature == 0.8
       assert llm.max_tokens == 500
@@ -34,14 +34,14 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
       llm =
         ReqLLM.new(
           provider: :gemini,
-          model: "gemini-2.0-flash-lite",
+          model: "gemini-flash-lite-latest",
           api_key: "test-key",
           temperature: 0.8,
           max_tokens: 500
         )
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-2.0-flash-lite"
+      assert llm.model == "gemini-flash-lite-latest"
       assert llm.api_key == "test-key"
       assert llm.temperature == 0.8
       assert llm.max_tokens == 500
@@ -51,7 +51,7 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
       llm =
         ReqLLM.new(
           provider: :openai,
-          model: "gpt-4o-mini",
+          model: "gpt-5.4-mini",
           temperature: 0.7
         )
 
