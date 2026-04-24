@@ -4,6 +4,15 @@ defmodule GEPA.Adapters.BasicTest do
   alias GEPA.Adapters.Basic
   alias GEPA.LLM.Mock
 
+  defmodule BasicFakeReqLLM do
+    def put_key(_key, _value), do: :ok
+    def generate_text(_model_spec, _prompt, _opts), do: {:ok, %{text: "The answer is A1."}}
+  end
+
+  defmodule BasicFakeReqLLMResponse do
+    def text(%{text: text}), do: text
+  end
+
   describe "evaluate/3" do
     test "scores correctly when answer found in response" do
       adapter = Basic.new()
@@ -51,6 +60,23 @@ defmodule GEPA.Adapters.BasicTest do
       assert result.scores == [1.0]
       assert hd(result.outputs) == "The answer is A1."
       assert hd(result.trajectories).response == "The answer is A1."
+    end
+
+    test "uses a normalized GEPA LLM client, not only test mock structs" do
+      llm =
+        GEPA.LLM.req_llm(:openai,
+          api_key: "explicit-key",
+          req_llm_module: BasicFakeReqLLM,
+          response_module: BasicFakeReqLLMResponse
+        )
+
+      adapter = Basic.new(llm: llm)
+
+      {:ok, result} =
+        Basic.evaluate(adapter, [%{input: "Q1", answer: "A1"}], %{"instruction" => "Help"}, true)
+
+      assert result.scores == [1.0]
+      assert hd(result.outputs) == "The answer is A1."
     end
   end
 
