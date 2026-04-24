@@ -38,6 +38,8 @@ defmodule GEPA.Examples.LiveCLI do
 
   @spec parse([String.t()], keyword()) :: parse_result()
   def parse(argv, example) when is_list(argv) and is_list(example) do
+    argv = normalize_argv(argv)
+
     case OptionParser.parse(argv, strict: @strict) do
       {opts, [], []} ->
         if Keyword.get(opts, :help, false) do
@@ -54,6 +56,9 @@ defmodule GEPA.Examples.LiveCLI do
         {:error, error_message(errors, example)}
     end
   end
+
+  defp normalize_argv(["--" | argv]), do: argv
+  defp normalize_argv(argv), do: argv
 
   @spec parse_or_halt([String.t()], keyword()) :: map()
   def parse_or_halt(argv, example) do

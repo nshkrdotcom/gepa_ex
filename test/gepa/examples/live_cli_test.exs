@@ -22,6 +22,11 @@ defmodule GEPA.Examples.LiveCLITest do
       assert help =~ "--adapter asm --provider codex"
     end
 
+    test "accepts the Mix argv separator before --help" do
+      assert {:help, help} = LiveCLI.parse(["--", "--help"], @example)
+      assert help =~ "Usage:"
+    end
+
     test "rejects missing adapter and provider with useful help" do
       assert {:error, message} = LiveCLI.parse([], @example)
       assert message =~ "missing required --adapter"
@@ -140,7 +145,8 @@ defmodule GEPA.Examples.LiveCLITest do
   end
 
   defp jsonl_fixture(rows) do
-    path = Path.join(System.tmp_dir!(), "gepa-live-cli-#{System.unique_integer([:positive])}.jsonl")
+    path =
+      Path.join(System.tmp_dir!(), "gepa-live-cli-#{System.unique_integer([:positive])}.jsonl")
 
     content =
       rows
