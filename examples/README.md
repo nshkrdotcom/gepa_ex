@@ -18,7 +18,7 @@ If either is missing, the example prints help and exits before any LLM call.
 Provider-keyed model defaults:
 
 - `--adapter req_llm --provider openai` uses `gpt-5.4-mini`
-- `--adapter req_llm --provider gemini` uses `gemini-flash-lite-latest`
+- `--adapter req_llm --provider gemini` uses `gemini-3.1-flash-lite-preview`
 - `--adapter req_llm --provider anthropic` uses `claude-haiku-4-5`
 - `--adapter asm --provider codex` uses the ASM/Codex default unless `--model` is provided
 - `--adapter asm --provider claude` uses the ASM/Claude default unless `--model` is provided

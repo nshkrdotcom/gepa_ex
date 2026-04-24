@@ -30,7 +30,7 @@ defmodule GEPA.LLM do
       llm = GEPA.LLM.req_llm(
         :gemini,
         api_key: "...",
-        model: "gemini-flash-lite-latest"
+        model: "gemini-3.1-flash-lite-preview"
       )
 
       {:ok, response} = GEPA.LLM.complete(llm, prompt, temperature: 0.9)

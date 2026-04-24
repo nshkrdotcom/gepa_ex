@@ -42,7 +42,7 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
 
   @default_models %{
     openai: "gpt-5.4-mini",
-    gemini: "gemini-flash-lite-latest",
+    gemini: "gemini-3.1-flash-lite-preview",
     anthropic: "claude-haiku-4-5"
   }
 

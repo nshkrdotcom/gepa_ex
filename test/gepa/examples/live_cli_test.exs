@@ -18,7 +18,7 @@ defmodule GEPA.Examples.LiveCLITest do
       assert help =~ "No Default Provider Or Adapter"
       assert help =~ "Default Models:"
       assert help =~ "gpt-5.4-mini"
-      assert help =~ "gemini-flash-lite-latest"
+      assert help =~ "gemini-3.1-flash-lite-preview"
       assert help =~ "--adapter asm --provider codex"
     end
 

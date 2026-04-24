@@ -65,7 +65,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ `GEPA.LLM` - Unified LLM behavior
 - ✅ `GEPA.LLM.req_llm/2` - Hosted provider facade via ReqLLM
   - OpenAI support (`gpt-5.4-mini` default)
-  - Google Gemini support (gemini-flash-lite-latest)
+  - Google Gemini support (gemini-3.1-flash-lite-preview)
   - Anthropic support through ReqLLM
   - Error handling, retries, timeouts
   - Configurable via explicit runtime options or application config

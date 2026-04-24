@@ -1,6 +1,8 @@
 defmodule GEPA.LLM.ReqLLMTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
+  import ExUnit.CaptureIO
+
   alias GEPA.LLM.ReqLLM
 
   describe "new/1" do
@@ -18,7 +20,7 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm = ReqLLM.new(provider: :gemini)
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-flash-lite-latest"
+      assert llm.model == "gemini-3.1-flash-lite-preview"
       assert llm.temperature == 0.7
       assert llm.max_tokens == 2000
     end
@@ -101,9 +103,21 @@ defmodule GEPA.LLM.ReqLLMTest do
       assert llm.model == "gpt-5.4-mini"
     end
 
-    test "Gemini default model is gemini-flash-lite-latest" do
+    test "Gemini default model is gemini-3.1-flash-lite-preview" do
       llm = ReqLLM.new(provider: :gemini)
-      assert llm.model == "gemini-flash-lite-latest"
+      assert llm.model == "gemini-3.1-flash-lite-preview"
+    end
+
+    test "Gemini default model resolves through ReqLLM catalog without fallback warning" do
+      llm = ReqLLM.new(provider: :gemini)
+
+      warning =
+        capture_io(:stderr, fn ->
+          assert {:ok, model} = Elixir.ReqLLM.model("google:" <> llm.model)
+          assert model.id == "gemini-3.1-flash-lite-preview"
+        end)
+
+      assert warning == ""
     end
 
     test "Anthropic default model is claude-haiku-4-5" do

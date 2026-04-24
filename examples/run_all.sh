@@ -66,7 +66,7 @@ ASM Options:
 
 Default Models:
   --adapter req_llm --provider openai     -> gpt-5.4-mini
-  --adapter req_llm --provider gemini     -> gemini-flash-lite-latest
+  --adapter req_llm --provider gemini     -> gemini-3.1-flash-lite-preview
   --adapter req_llm --provider anthropic  -> claude-haiku-4-5
   --adapter asm --provider codex          -> ASM/Codex default unless --model is provided
   --adapter asm --provider claude         -> ASM/Claude default unless --model is provided
