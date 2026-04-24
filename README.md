@@ -7,7 +7,7 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/gepa_ex.svg)](https://hex.pm/packages/gepa_ex)
 [![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
 [![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
-[![Tests](https://img.shields.io/badge/tests-316%2F316%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-329%2F329%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
 
@@ -105,7 +105,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ 9 tests
 
 **Test Quality:**
-- 316 tests + 16 properties + 1 doctest
+- 329 tests + 16 properties + 1 doctest
 - 100% passing ✅
 - 75.4% coverage (excellent!)
 - Property tests with 1,600+ runs

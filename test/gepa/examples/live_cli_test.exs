@@ -150,8 +150,7 @@ defmodule GEPA.Examples.LiveCLITest do
 
     content =
       rows
-      |> Enum.map(&Jason.encode!/1)
-      |> Enum.join("\n")
+      |> Enum.map_join("\n", &Jason.encode!/1)
 
     File.write!(path, content <> "\n")
     path

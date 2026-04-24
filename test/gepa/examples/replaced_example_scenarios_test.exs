@@ -1,6 +1,10 @@
 defmodule GEPA.Examples.ReplacedExampleScenariosTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
+  alias GEPA.Adapters.Basic
+  alias GEPA.LLM
+  alias GEPA.Result
+
   defmodule SentimentAdapter do
     @behaviour GEPA.Adapter
 
@@ -62,8 +66,8 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
 
   describe "scenarios removed from live-only examples" do
     test "quick-start style optimization remains covered by tests" do
-      llm = GEPA.LLM.Mock.new(response_fn: fn _prompt -> "The answer is 4." end)
-      adapter = GEPA.Adapters.Basic.new(llm: llm)
+      llm = LLM.Mock.new(response_fn: fn _prompt -> "The answer is 4." end)
+      adapter = Basic.new(llm: llm)
 
       {:ok, result} =
         GEPA.optimize(
@@ -74,7 +78,7 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
           max_metric_calls: 3
         )
 
-      assert GEPA.Result.best_score(result) == 1.0
+      assert Result.best_score(result) == 1.0
     end
 
     test "state persistence flow remains covered by tests" do
@@ -86,8 +90,8 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
 
       on_exit(fn -> File.rm_rf(run_dir) end)
 
-      llm = GEPA.LLM.Mock.new(response_fn: fn _prompt -> "The answer is Paris." end)
-      adapter = GEPA.Adapters.Basic.new(llm: llm)
+      llm = LLM.Mock.new(response_fn: fn _prompt -> "The answer is Paris." end)
+      adapter = Basic.new(llm: llm)
 
       {:ok, _result} =
         GEPA.optimize(
@@ -105,7 +109,7 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
 
     test "custom adapter sentiment flow remains covered by tests" do
       llm =
-        GEPA.LLM.Mock.new(
+        LLM.Mock.new(
           response_fn: fn prompt ->
             if String.contains?(prompt, "excellent"), do: "positive", else: "negative"
           end
@@ -122,7 +126,7 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
           max_metric_calls: 3
         )
 
-      assert is_float(GEPA.Result.best_score(result))
+      assert is_float(Result.best_score(result))
     end
   end
 end
