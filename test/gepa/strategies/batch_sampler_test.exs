@@ -1,8 +1,8 @@
 defmodule GEPA.Strategies.BatchSamplerTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
-  alias GEPA.Strategies.BatchSampler.{Simple, EpochShuffled}
   alias GEPA.DataLoader
+  alias GEPA.Strategies.BatchSampler.{EpochShuffled, Simple}
 
   describe "Simple batch sampler" do
     test "creates sampler with default batch size" do

@@ -3,6 +3,7 @@ defmodule GEPA.LLMTest do
   doctest GEPA.LLM
 
   alias GEPA.LLM.Mock
+  alias GEPA.LLM.ReqLLM
 
   describe "GEPA.LLM behavior" do
     test "complete/3 delegates to module's implementation" do
@@ -13,7 +14,7 @@ defmodule GEPA.LLMTest do
 
     test "default/0 returns ReqLLM with OpenAI by default" do
       llm = GEPA.LLM.default()
-      assert %GEPA.LLM.ReqLLM{provider: :openai} = llm
+      assert %ReqLLM{provider: :openai} = llm
     end
 
     test "default/0 respects application config" do
@@ -22,7 +23,19 @@ defmodule GEPA.LLMTest do
       try do
         Application.put_env(:gepa_ex, :llm, provider: :gemini)
         llm = GEPA.LLM.default()
-        assert %GEPA.LLM.ReqLLM{provider: :gemini} = llm
+        assert %ReqLLM{provider: :gemini} = llm
+      after
+        Application.put_env(:gepa_ex, :llm, original)
+      end
+    end
+
+    test "default/0 routes Anthropic through ReqLLM compatibility wrapper" do
+      original = Application.get_env(:gepa_ex, :llm, [])
+
+      try do
+        Application.put_env(:gepa_ex, :llm, provider: :anthropic)
+        llm = GEPA.LLM.default()
+        assert %ReqLLM{provider: :anthropic} = llm
       after
         Application.put_env(:gepa_ex, :llm, original)
       end
@@ -73,11 +86,8 @@ defmodule GEPA.LLMTest do
                GEPA.LLM.complete_structured(llm, "prompt")
     end
 
-    test "dispatches to Anthropic.complete_structured/3 when exported" do
-      assert function_exported?(GEPA.LLM.Anthropic, :complete_structured, 3)
-
-      System.delete_env("ANTHROPIC_API_KEY")
-      llm = GEPA.LLM.Anthropic.new(api_key: nil)
+    test "dispatches to ReqLLM Anthropic wrapper when configured" do
+      llm = ReqLLM.new(provider: :anthropic, api_key: nil)
 
       assert {:error, reason} = GEPA.LLM.complete_structured(llm, "hello")
       assert reason =~ "api_key"

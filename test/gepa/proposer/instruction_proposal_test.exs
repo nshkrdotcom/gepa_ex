@@ -1,8 +1,8 @@
 defmodule GEPA.Proposer.InstructionProposalTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
-  alias GEPA.Proposer.InstructionProposal
   alias GEPA.LLM.Mock
+  alias GEPA.Proposer.InstructionProposal
 
   describe "new/1" do
     test "creates with default template" do
@@ -190,6 +190,91 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
 
       assert result == "Extracted content"
+    end
+
+    test "default extractor strips language specifier from fenced instruction" do
+      llm =
+        Mock.new(
+          responses: [
+            """
+            Here's the improved instruction:
+            ```markdown
+            This is the actual instruction content.
+            It should not include the word 'markdown'.
+            ```
+            """
+          ]
+        )
+
+      proposal = InstructionProposal.new(llm: llm)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
+
+      assert result ==
+               "This is the actual instruction content.\nIt should not include the word 'markdown'."
+    end
+
+    test "default extractor uses outermost fenced block" do
+      llm =
+        Mock.new(
+          responses: [
+            """
+            Begin text
+            ```plaintext
+            Begin instructions
+
+            ```
+            Internal block 1
+            ```
+
+            ```python
+            Internal block 2
+            ```
+
+            End instructions
+            ```
+            End text
+            """
+          ]
+        )
+
+      proposal = InstructionProposal.new(llm: llm)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
+
+      assert result ==
+               "Begin instructions\n\n```\nInternal block 1\n```\n\n```python\nInternal block 2\n```\n\nEnd instructions"
+    end
+
+    test "default extractor handles unmatched opening or closing fences" do
+      opening = Mock.new(responses: ["```text\nHere are the instructions."])
+      closing = Mock.new(responses: ["Here are the instructions.\n```"])
+
+      {:ok, opening_result} =
+        opening
+        |> then(&InstructionProposal.new(llm: &1))
+        |> InstructionProposal.propose("comp", "instruction", [])
+
+      {:ok, closing_result} =
+        closing
+        |> then(&InstructionProposal.new(llm: &1))
+        |> InstructionProposal.propose("comp", "instruction", [])
+
+      assert opening_result == "Here are the instructions."
+      assert closing_result == "Here are the instructions."
+    end
+
+    test "default extractor returns trimmed raw text when no complete fence exists" do
+      llm =
+        Mock.new(
+          responses: ["\n Here are some backticks:\n```\nI hope you didn't get confused. "]
+        )
+
+      proposal = InstructionProposal.new(llm: llm)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
+
+      assert result == "Here are some backticks:\n```\nI hope you didn't get confused."
     end
 
     test "handles empty dataset" do

@@ -1,4 +1,7 @@
 defmodule GEPA.Proposer.Reflective do
+  # The proposal flow mirrors the official GEPA evaluate/propose/evaluate loop.
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
+
   @moduledoc """
   Reflective mutation proposer.
 
@@ -8,7 +11,7 @@ defmodule GEPA.Proposer.Reflective do
 
   ## With LLM-based Instruction Proposal
 
-      llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+      llm = GEPA.LLM.req_llm(:openai)
       instruction_proposal = GEPA.Proposer.InstructionProposal.new(llm: llm)
 
       proposer = Reflective.new(
@@ -176,7 +179,8 @@ defmodule GEPA.Proposer.Reflective do
                components
              ) do
           {:ok, reflective_dataset} ->
-            InstructionProposal.propose_batch(
+            propose_new_texts(
+              proposer,
               instruction_proposal,
               candidate,
               reflective_dataset,
@@ -186,6 +190,33 @@ defmodule GEPA.Proposer.Reflective do
           {:error, reason} ->
             {:error, {:reflective_dataset_failed, reason}}
         end
+    end
+  end
+
+  defp propose_new_texts(
+         proposer,
+         instruction_proposal,
+         candidate,
+         reflective_dataset,
+         components
+       ) do
+    adapter = proposer.adapter
+    module = adapter.__struct__
+
+    cond do
+      function_exported?(module, :propose_new_texts, 4) ->
+        module.propose_new_texts(adapter, candidate, reflective_dataset, components)
+
+      function_exported?(module, :propose_new_texts, 3) ->
+        module.propose_new_texts(candidate, reflective_dataset, components)
+
+      true ->
+        InstructionProposal.propose_batch(
+          instruction_proposal,
+          candidate,
+          reflective_dataset,
+          components
+        )
     end
   end
 

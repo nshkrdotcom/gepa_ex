@@ -18,6 +18,12 @@ defmodule GEPA.DataLoaderTest do
       assert DataLoader.all_ids(loader) == [0, 1, 2, 3]
     end
 
+    test "all_ids/1 returns empty list for empty loader" do
+      loader = DataLoader.List.new([])
+
+      assert DataLoader.all_ids(loader) == []
+    end
+
     test "fetch/2 returns items in order of IDs" do
       items = [:a, :b, :c, :d]
       loader = DataLoader.List.new(items)

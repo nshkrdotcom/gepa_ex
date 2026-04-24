@@ -51,18 +51,19 @@ Total desired: #{total_desired_iterations}
 """)
 
 # Check if previous state exists
-state_file = Path.join(run_dir, "state.etf")
+state_file = Path.join(run_dir, "gepa_state.etf")
 previous_state_exists = File.exists?(state_file)
 
 if previous_state_exists do
   # Load previous state to check progress
   previous_state = File.read!(state_file) |> :erlang.binary_to_term()
+  previous_result = GEPA.Result.from_state(previous_state)
 
   IO.puts("""
 
   ♻️  Found previous optimization state!
   Previous iterations: #{previous_state.i}
-  Previous best score: #{Float.round(GEPA.Result.best_score(previous_state), 3)}
+  Previous best score: #{Float.round(GEPA.Result.best_score(previous_result), 3)}
 
   Resuming optimization...
   """)
@@ -71,7 +72,14 @@ else
 end
 
 # Create adapter
-adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
+mock_llm =
+  GEPA.LLM.Mock.new(
+    response_fn: fn _prompt ->
+      "The answer is Paris, 120, Shakespeare, Pacific, 1945, Tokyo, or 56."
+    end
+  )
+
+adapter = GEPA.Adapters.Basic.new(llm: mock_llm)
 
 # Run optimization with state persistence
 {:ok, result} =
@@ -109,8 +117,7 @@ if result.i < total_desired_iterations do
   The optimization will automatically resume from iteration #{result.i + 1}.
 
   📁 Saved files:
-  - #{run_dir}/state.etf (optimization state)
-  - #{run_dir}/result.etf (results so far)
+  - #{run_dir}/gepa_state.etf (optimization state)
 
   💡 To stop optimization gracefully, create a file:
     touch #{run_dir}/gepa.stop

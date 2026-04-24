@@ -36,7 +36,7 @@ defmodule CustomSentimentAdapter do
   end
 
   @impl true
-  def evaluate(%__MODULE__{} = adapter, candidate, batch, _opts) do
+  def evaluate(%__MODULE__{} = adapter, batch, candidate, capture_traces) do
     # For each example, use the LLM with the candidate instruction
     results =
       Enum.map(batch, fn example ->
@@ -59,6 +59,7 @@ defmodule CustomSentimentAdapter do
           trace: %{
             prompt: prompt,
             response: response,
+            expected: example.sentiment,
             component: "instruction"
           }
         }
@@ -66,39 +67,43 @@ defmodule CustomSentimentAdapter do
 
     outputs = Enum.map(results, &Map.take(&1, [:predicted, :response]))
     scores = Enum.map(results, & &1.score)
-    traces = Enum.map(results, & &1.trace)
+    trajectories = if capture_traces, do: Enum.map(results, & &1.trace), else: nil
 
-    %GEPA.EvaluationBatch{
+    {:ok,
+     %GEPA.EvaluationBatch{
       outputs: outputs,
       scores: scores,
-      traces: traces
-    }
+      trajectories: trajectories
+     }}
   end
 
   @impl true
-  def extract_component_context(
+  def make_reflective_dataset(
         _adapter,
         _candidate,
-        _component_name,
-        _batch,
-        traces,
-        scores
+        eval_batch,
+        components_to_update
       ) do
-    # Build feedback for the instruction component
-    feedback =
-      Enum.zip(traces, scores)
-      |> Enum.map(fn {trace, score} ->
-        status = if score > 0.5, do: "✓ Correct", else: "✗ Wrong"
+    dataset =
+      for component <- components_to_update, into: %{} do
+        items =
+          eval_batch.trajectories
+          |> Enum.zip(eval_batch.scores)
+          |> Enum.map(fn {trace, score} ->
+            status = if score > 0.5, do: "Correct", else: "Wrong"
 
-        """
-        #{status}
-        Input: #{trace.prompt |> String.slice(0, 100)}...
-        Predicted: #{extract_sentiment(trace.response)}
-        """
-      end)
-      |> Enum.join("\n\n")
+            %{
+              "Inputs" => %{"prompt" => String.slice(trace.prompt, 0, 100)},
+              "Generated Outputs" => trace.response,
+              "Feedback" =>
+                "#{status}. Expected #{trace.expected}, got #{extract_sentiment(trace.response)} using #{component}."
+            }
+          end)
 
-    {:ok, feedback}
+        {component, items}
+      end
+
+    {:ok, dataset}
   end
 
   # Helper functions
@@ -201,12 +206,12 @@ Optimized instruction:
 📚 What you learned:
 - How to implement the GEPA.Adapter behavior
 - Custom evaluation logic for your domain
-- Trace extraction for component feedback
+- Reflective dataset extraction for component feedback
 - Integration with domain-specific scoring
 
 🔧 Customization points:
 1. evaluate/4 - Define how to score candidate on your task
-2. extract_component_context/6 - Extract feedback for reflection
+2. make_reflective_dataset/4 - Extract feedback for reflection
 3. Build prompts specific to your domain
 4. Define success metrics for your use case
 

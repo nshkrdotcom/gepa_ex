@@ -34,14 +34,14 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
       llm =
         ReqLLM.new(
           provider: :gemini,
-          model: "gemini-flash-lite-latest",
+          model: "gemini-2.0-flash-lite",
           api_key: "test-key",
           temperature: 0.8,
           max_tokens: 500
         )
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-flash-lite-latest"
+      assert llm.model == "gemini-2.0-flash-lite"
       assert llm.api_key == "test-key"
       assert llm.temperature == 0.8
       assert llm.max_tokens == 500
@@ -81,19 +81,6 @@ defmodule GEPA.LLM.ReqLLMIntegrationTest do
     end
   end
 
-  # Note: To add real integration tests that make HTTP calls:
-  # 1. Create a separate test file (e.g., req_llm_live_test.exs)
-  # 2. Tag with @tag :live
-  # 3. Skip by default: mix test --exclude live
-  # 4. Run when needed: mix test --only live
-  #
-  # Example:
-  #
-  # @tag :live
-  # test "makes real OpenAI API call" do
-  #   api_key = System.get_env("OPENAI_API_KEY") || raise "OPENAI_API_KEY required"
-  #   llm = ReqLLM.new(provider: :openai, api_key: api_key)
-  #   {:ok, response} = ReqLLM.complete(llm, "Say 'test'")
-  #   assert is_binary(response)
-  # end
+  # Real hosted-provider smoke checks live in examples and take explicit CLI
+  # credentials. The unit/integration suite remains deterministic.
 end

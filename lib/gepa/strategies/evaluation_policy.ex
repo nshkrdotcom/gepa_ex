@@ -103,6 +103,8 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
 
   @behaviour GEPA.Strategies.EvaluationPolicy
 
+  alias GEPA.Strategies.EvaluationPolicy.Full
+
   defstruct [
     :initial_sample_size,
     :increment_size,
@@ -157,7 +159,7 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
 
         previous_list = MapSet.to_list(previously_evaluated)
 
-        if num_new > 0 and length(available_new) > 0 do
+        if num_new > 0 and available_new != [] do
           :rand.seed(:exsss, {policy.seed, candidate_idx, num_previously})
           new_samples = Enum.take_random(available_new, min(num_new, length(available_new)))
           previous_list ++ new_samples
@@ -199,7 +201,7 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
     state.prog_candidate_val_subscores
     |> Enum.with_index()
     |> Enum.map(fn {scores, idx} ->
-      {avg, coverage} = GEPA.Strategies.EvaluationPolicy.Full.calculate_avg_and_coverage(scores)
+      {avg, coverage} = Full.calculate_avg_and_coverage(scores)
       {idx, avg, coverage}
     end)
     |> Enum.max_by(fn {_idx, avg, coverage} -> {avg, coverage} end)
@@ -216,5 +218,5 @@ defmodule GEPA.Strategies.EvaluationPolicy.Incremental do
   end
 
   # Make calculate_avg_and_coverage public for reuse
-  defdelegate calculate_avg_and_coverage(scores), to: GEPA.Strategies.EvaluationPolicy.Full
+  defdelegate calculate_avg_and_coverage(scores), to: Full
 end

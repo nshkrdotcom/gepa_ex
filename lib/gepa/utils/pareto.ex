@@ -39,30 +39,35 @@ defmodule GEPA.Utils.Pareto do
           [Types.program_idx()],
           Types.pareto_fronts()
         ) :: boolean()
+  # Public API kept for compatibility with the original port and tests.
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   def is_dominated?(program, other_programs, program_at_pareto_front_valset) do
     # Find all fronts containing this program
-    fronts_with_program =
-      program_at_pareto_front_valset
-      |> Enum.reduce([], fn {_id, front}, acc ->
-        if is_struct(front, MapSet) and MapSet.member?(front, program) do
-          [front | acc]
-        else
-          acc
-        end
-      end)
-      |> Enum.reverse()
+    fronts_with_program = fronts_containing_program(program_at_pareto_front_valset, program)
 
-    # If program is not in any front, it's not dominated
-    if fronts_with_program == [] do
-      false
-    else
-      # Check if for every front, at least one other program is also in that front
-      Enum.all?(fronts_with_program, fn front ->
-        Enum.any?(other_programs, fn other ->
-          other != program and MapSet.member?(front, other)
-        end)
-      end)
+    case fronts_with_program do
+      # If program is not in any front, it's not dominated.
+      [] -> false
+      fronts -> Enum.all?(fronts, &dominated_on_front?(&1, other_programs, program))
     end
+  end
+
+  defp dominated_on_front?(front, other_programs, program) do
+    Enum.any?(other_programs, fn other ->
+      other != program and MapSet.member?(front, other)
+    end)
+  end
+
+  defp fronts_containing_program(fronts, program) do
+    fronts
+    |> Enum.reduce([], fn {_id, front}, acc ->
+      if mapset_member?(front, program), do: [front | acc], else: acc
+    end)
+    |> Enum.reverse()
+  end
+
+  defp mapset_member?(front, program) do
+    is_struct(front, MapSet) and MapSet.member?(front, program)
   end
 
   @doc """

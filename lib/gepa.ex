@@ -20,7 +20,7 @@ defmodule GEPA do
 
   ## With LLM-based Reflection
 
-      llm = GEPA.LLM.ReqLLM.new(provider: :openai, model: "gpt-4o-mini")
+      llm = GEPA.LLM.req_llm(:openai, model: "gpt-4o-mini")
 
       {:ok, result} = GEPA.optimize(
         seed_candidate: %{"instruction" => "You are a helpful assistant."},
@@ -35,7 +35,10 @@ defmodule GEPA do
   rather than using a simple placeholder improvement.
   """
 
+  alias GEPA.Adapters.Default
   alias GEPA.Proposer.InstructionProposal
+  alias GEPA.StopCondition.MaxCalls
+  alias GEPA.Strategies.CandidateSelector.Pareto
 
   @doc """
   Run GEPA optimization.
@@ -59,6 +62,11 @@ defmodule GEPA do
   - `:reflection_llm` - LLM for generating improved instructions (default: nil)
   - `:proposal_template` - Custom template for instruction proposal (default: built-in)
   - `:structured_output` - Use tool_use / function calling for instruction proposals (default: false)
+  - `:acceptance_criterion` - Candidate acceptance criterion (default: `:strict_improvement`)
+  - `:callbacks` - Synchronous observational callbacks (default: `[]`)
+  - `:track_best_outputs` - Track best validation outputs in state/result (default: `false`)
+  - `:frontier_type` - Pareto frontier mode: `:instance`, `:objective`, `:hybrid`, or `:cartesian`
+    (default: `:instance`)
   - `:progress` - Enable progress display (default: false). Can be `true` or a keyword
     list with options: `[width: 60, color: true]`
 
@@ -110,37 +118,52 @@ defmodule GEPA do
   end
 
   defp build_config(opts) do
-    # Convert lists to DataLoaders
-    trainset = ensure_loader(opts[:trainset])
-    valset = ensure_loader(opts[:valset])
-
-    # Build stop conditions
-    stop_conditions =
-      if opts[:max_metric_calls] do
-        [GEPA.StopCondition.MaxCalls.new(opts[:max_metric_calls])]
-      else
-        raise ArgumentError, "must provide :max_metric_calls"
-      end
-
-    # Build instruction proposal if LLM provided
-    instruction_proposal = build_instruction_proposal(opts)
-
     %{
-      seed_candidate:
-        opts[:seed_candidate] || raise(ArgumentError, "must provide :seed_candidate"),
-      trainset: trainset,
-      valset: valset,
-      adapter: opts[:adapter] || raise(ArgumentError, "must provide :adapter"),
-      candidate_selector: opts[:candidate_selector] || GEPA.Strategies.CandidateSelector.Pareto,
-      stop_conditions: stop_conditions,
-      reflection_minibatch_size: opts[:reflection_minibatch_size] || 3,
-      perfect_score: opts[:perfect_score] || 1.0,
+      seed_candidate: fetch_required!(opts, :seed_candidate),
+      trainset: ensure_loader(opts[:trainset]),
+      valset: ensure_loader(opts[:valset]),
+      adapter: build_adapter(opts),
+      candidate_selector: Keyword.get(opts, :candidate_selector, Pareto),
+      stop_conditions: build_stop_conditions(opts),
+      reflection_minibatch_size: Keyword.get(opts, :reflection_minibatch_size, 3),
+      perfect_score: Keyword.get(opts, :perfect_score, 1.0),
       skip_perfect_score: Keyword.get(opts, :skip_perfect_score, true),
-      seed: opts[:seed] || 0,
+      seed: Keyword.get(opts, :seed, 0),
       run_dir: opts[:run_dir],
-      instruction_proposal: instruction_proposal,
-      progress: opts[:progress]
+      instruction_proposal: build_instruction_proposal(opts),
+      progress: opts[:progress],
+      acceptance_criterion: Keyword.get(opts, :acceptance_criterion, :strict_improvement),
+      callbacks: Keyword.get(opts, :callbacks, []),
+      track_best_outputs: Keyword.get(opts, :track_best_outputs, false),
+      frontier_type: Keyword.get(opts, :frontier_type, :instance),
+      evaluation_cache: opts[:evaluation_cache]
     }
+  end
+
+  defp build_stop_conditions(opts) do
+    [MaxCalls.new(fetch_required!(opts, :max_metric_calls))]
+  end
+
+  defp fetch_required!(opts, key) do
+    Keyword.get(opts, key) || raise ArgumentError, "must provide #{inspect(key)}"
+  end
+
+  defp build_adapter(opts) do
+    Keyword.get(opts, :adapter) || build_default_adapter(opts)
+  end
+
+  defp build_default_adapter(opts) do
+    task_lm = opts[:task_lm] || opts[:model]
+
+    if task_lm do
+      Default.new(
+        model: task_lm,
+        evaluator: opts[:evaluator],
+        failure_score: opts[:failure_score] || 0.0
+      )
+    else
+      raise ArgumentError, "must provide :adapter"
+    end
   end
 
   defp build_instruction_proposal(opts) do

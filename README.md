@@ -7,7 +7,7 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/gepa_ex.svg)](https://hex.pm/packages/gepa_ex)
 [![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
 [![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
-[![Tests](https://img.shields.io/badge/tests-218%2F218%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-316%2F316%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
 
@@ -34,7 +34,8 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - 🛡️ **OTP supervision** for fault-tolerant external service integration
 - 🔄 **Functional programming** for clean, testable code
  - 📊 **Telemetry** event schema for lifecycle, iteration, proposal, and evaluation metrics
-- ✨ **Production LLMs** - OpenAI GPT-4o-mini & Google Gemini Flash Lite (`gemini-flash-lite-latest`)
+- ✨ **Production LLMs** - OpenAI, Google Gemini, and Anthropic through ReqLLM
+- 🧩 **Local agent facade** - Codex, Claude, Gemini, and Amp routing through Agent Session Manager
 
 ## Production Ready
 
@@ -45,24 +46,31 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ `GEPA.Engine` - Full optimization loop with stop conditions
 - ✅ `GEPA.Proposer.Reflective` - Mutation strategy
 - ✅ LLM-based instruction proposal via `reflection_llm` and custom templates
-- ✅ `GEPA.State` - State management with automatic Pareto updates (96.5% coverage)
+- ✅ `GEPA.State` - State management with Pareto, objective-frontier, cache, and best-output tracking
 - ✅ `GEPA.Utils.Pareto` - Multi-objective optimization (93.5% coverage, property-verified)
-- ✅ `GEPA.Result` - Result analysis (100% coverage)
+- ✅ `GEPA.Result` - Result analysis with objective metadata and round-trip serialization
 - ✅ `GEPA.Adapters.Basic` - Q&A adapter (92.1% coverage)
+- ✅ `GEPA.Adapters.Default` - Official-style default adapter for simple chat-model tasks
 - ✅ Stop conditions with budget control
-- ✅ State persistence (save/load)
+- ✅ State persistence (save/load) with adapter-state snapshots and candidate JSON sidecars
+- ✅ Acceptance criteria (`:strict_improvement`, `:improvement_or_equal`, or custom function/module)
+- ✅ Synchronous observational callbacks for optimization and iteration lifecycle
+- ✅ Evaluation cache for candidate/example validation results
 - ✅ Telemetry event emitters for runs, iterations, proposals, and evaluation batches
 - ✅ End-to-end integration tested
 
-### Phase 1 Additions - NEW! 🎉
+### LLM Integration
 
 **Production LLM Integration:**
 - ✅ `GEPA.LLM` - Unified LLM behavior
-- ✅ `GEPA.LLM.ReqLLM` - Production implementation via ReqLLM
+- ✅ `GEPA.LLM.req_llm/2` - Hosted provider facade via ReqLLM
   - OpenAI support (GPT-4o-mini default)
   - Google Gemini support (gemini-flash-lite-latest)
+  - Anthropic support through ReqLLM
   - Error handling, retries, timeouts
-  - Configurable via environment or runtime
+  - Configurable via explicit runtime options or application config
+- ✅ `GEPA.LLM.agent/2` - Local CLI/agent facade via Agent Session Manager
+- ✅ `GEPA.LLM.ReqLLM` - Backward-compatible ReqLLM wrapper
 - ✅ `GEPA.LLM.Mock` - Testing implementation with flexible responses
 
 **Advanced Batch Sampling:**
@@ -71,7 +79,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ Better training dynamics than simple sampling
 
 **Working Examples:**
-- ✅ 4 .exs script examples (quick start, math, custom adapter, persistence)
+- ✅ 5 .exs script examples (quick start, math, custom adapter, persistence, LLM adapters)
 - ✅ 3 Livebook notebooks (interactive learning)
 - ✅ Comprehensive examples/README.md guide
 - ✅ Livebook guide with visualizations
@@ -98,7 +106,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ 9 tests
 
 **Test Quality:**
-- 201 tests (185 unit + 16 properties + 1 doctest)
+- 316 tests + 16 properties + 1 doctest
 - 100% passing ✅
 - 75.4% coverage (excellent!)
 - Property tests with 1,600+ runs
@@ -164,12 +172,16 @@ IO.puts("Iterations: #{result.i}")
 ### With Production LLMs (NEW!)
 
 ```elixir
-# OpenAI (GPT-4o-mini) - Requires OPENAI_API_KEY
-llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+# OpenAI through the ReqLLM adapter
+llm = GEPA.LLM.req_llm(:openai, api_key: "sk-...")
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
-# Or Gemini (`gemini-flash-lite-latest`) - Requires GEMINI_API_KEY
-llm = GEPA.LLM.ReqLLM.new(provider: :gemini)
+# Gemini through the ReqLLM adapter
+llm = GEPA.LLM.req_llm(:gemini, api_key: "...")
+adapter = GEPA.Adapters.Basic.new(llm: llm)
+
+# Anthropic Claude through the ReqLLM adapter
+llm = GEPA.LLM.req_llm(:anthropic, api_key: "...")
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
 # Then run optimization as above
@@ -183,6 +195,41 @@ adapter = GEPA.Adapters.Basic.new(llm: llm)
 ```
 
 See [Examples overview](examples/README.md) for complete working examples!
+
+### With The Default Adapter
+
+For simple prompt optimization, you can provide a task model callable and let GEPA build the default adapter:
+
+```elixir
+task_lm = fn messages ->
+  user = Enum.find(messages, &(&1.role == "user"))
+  "Answer for: #{user.content}"
+end
+
+{:ok, result} =
+  GEPA.optimize(
+    seed_candidate: %{"instruction" => "Answer exactly."},
+    trainset: [%{input: "What is 2+2?", answer: "4"}],
+    valset: [%{input: "What is 5+5?", answer: "10"}],
+    max_metric_calls: 20,
+    task_lm: task_lm
+  )
+```
+
+Pass a custom `:evaluator` if answer containment is not the right metric.
+
+### Local Agent Providers
+
+When `../agent_session_manager` is available, GEPA can also route local agent calls through the same facade:
+
+```elixir
+client = GEPA.LLM.agent(:codex, lane: :core, session: :my_session)
+{:ok, text} = GEPA.LLM.complete(client, "Summarize this GEPA run")
+```
+
+This adapter is intentionally a temporary migration-safe boundary. GEPA optimizer code depends on `GEPA.LLM.Client`, not on ReqLLM or Agent Session Manager directly, so the facade can move to a future shared inference package without changing GEPA internals.
+
+`GEPA.LLM.req_llm/2` and `GEPA.LLM.agent/2` are constructor helpers for the GEPA port. They return `GEPA.LLM.Client` values; optimizer/proposer code should continue calling `GEPA.LLM.complete/3` and `GEPA.LLM.complete_structured/3` instead of calling ReqLLM, ASM, or CLI SDK modules directly.
 
 ### Candidate Selection Strategies (NEW)
 
@@ -220,7 +267,7 @@ selector =
 Use an LLM to propose improved component instructions based on reflective feedback. You can also provide a custom proposal template.
 
 ```elixir
-reflection_llm = GEPA.LLM.ReqLLM.new(provider: :openai, model: "gpt-4o-mini")
+reflection_llm = GEPA.LLM.req_llm(:openai, api_key: "sk-...", model: "gpt-4o-mini")
 
 custom_template = """
 Improve {component_name}:
@@ -238,6 +285,29 @@ New instruction:
   reflection_llm: reflection_llm,
   proposal_template: custom_template
 )
+```
+
+### Advanced Optimizer Controls
+
+```elixir
+cache = GEPA.EvaluationCache.new()
+
+callback = fn event_name, event ->
+  IO.inspect({event_name, Map.take(event, [:iteration, :proposal_accepted])})
+end
+
+{:ok, result} =
+  GEPA.optimize(
+    seed_candidate: %{"instruction" => "..."},
+    trainset: trainset,
+    valset: valset,
+    adapter: adapter,
+    max_metric_calls: 50,
+    acceptance_criterion: :improvement_or_equal,
+    callbacks: [callback],
+    track_best_outputs: true,
+    evaluation_cache: cache
+  )
 ```
 
 When `reflection_llm` is not provided, GEPA falls back to a simple testing-only improvement marker (`"[Optimized]"`).

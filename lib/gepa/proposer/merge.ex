@@ -1,4 +1,7 @@
 defmodule GEPA.Proposer.Merge do
+  # Existing merge heuristics use a few compact nested selection steps.
+  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
+
   @moduledoc """
   Merge Proposer for GEPA optimization.
 
@@ -217,10 +220,10 @@ defmodule GEPA.Proposer.Merge do
         proposer.last_iter_found_new_program and
         proposer.merges_due > 0
 
-    if not should_merge do
-      {nil, proposer}
-    else
+    if should_merge do
       attempt_merge(proposer, state)
+    else
+      {nil, proposer}
     end
   end
 

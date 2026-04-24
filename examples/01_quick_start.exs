@@ -15,10 +15,8 @@
 # ## To run:
 #   mix run examples/01_quick_start.exs
 #
-# ## With real LLM (requires API key):
-#   OPENAI_API_KEY=sk-... mix run examples/01_quick_start.exs
-#   # or
-#   GEMINI_API_KEY=... mix run examples/01_quick_start.exs
+# This example is not live. It uses a deterministic mock LLM.
+# See examples/05_llm_adapters.exs for a live hosted-provider smoke test.
 
 # Mix.install([{:gepa_ex, path: "."}])
 # Note: Mix.install is for standalone scripts. When running from project root,
@@ -50,8 +48,11 @@ Validation set: #{length(valset)} examples
 Starting instruction: "#{seed_candidate["instruction"]}"
 """)
 
+IO.puts("Using deterministic mock LLM. This example makes no live LLM calls.")
+llm = GEPA.LLM.Mock.new(response_fn: fn _prompt -> "The answer is 4, 8, 3, or 10." end)
+
 # Create adapter
-adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
+adapter = GEPA.Adapters.Basic.new(llm: llm)
 
 # Run optimization
 IO.puts("\n⚙️  Running optimization...")
@@ -79,7 +80,7 @@ Optimized instruction:
 #{String.slice(GEPA.Result.best_candidate(result)["instruction"], 0, 200)}...
 
 💡 Next steps:
-- Try with real LLM: Set OPENAI_API_KEY or GEMINI_API_KEY
+- Try the live adapter smoke test: examples/05_llm_adapters.exs
 - Increase iterations: Change max_metric_calls to 50
 - Use your own data: Replace trainset and valset
 - See more examples: examples/02_math_problems.exs

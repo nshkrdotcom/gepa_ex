@@ -79,5 +79,40 @@ defmodule GEPA.CandidateProposalTest do
 
       refute GEPA.CandidateProposal.should_accept?(proposal)
     end
+
+    test "supports improvement-or-equal acceptance criterion" do
+      proposal = %GEPA.CandidateProposal{
+        candidate: %{},
+        parent_program_ids: [0],
+        tag: "test",
+        subsample_scores_before: [0.5, 0.5],
+        subsample_scores_after: [0.6, 0.4]
+      }
+
+      assert GEPA.CandidateProposal.should_accept?(proposal, :improvement_or_equal, %GEPA.State{
+               program_candidates: [%{}],
+               parent_program_for_candidate: [[nil]],
+               prog_candidate_val_subscores: [%{}],
+               pareto_front_valset: %{},
+               program_at_pareto_front_valset: %{},
+               list_of_named_predictors: []
+             })
+    end
+
+    test "supports custom acceptance functions" do
+      proposal = %GEPA.CandidateProposal{
+        candidate: %{},
+        parent_program_ids: [0],
+        tag: "test",
+        subsample_scores_before: [1.0],
+        subsample_scores_after: [0.0]
+      }
+
+      criterion = fn candidate_proposal, _state ->
+        candidate_proposal.tag == "test"
+      end
+
+      assert GEPA.CandidateProposal.should_accept?(proposal, criterion, nil)
+    end
   end
 end

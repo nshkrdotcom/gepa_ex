@@ -9,10 +9,12 @@ defmodule GEPA.Adapters.Basic do
   implement the GEPA.Adapter behavior directly.
   """
 
+  alias GEPA.LLM.Mock
+
   defstruct [:llm_client, :failure_score]
 
   @type t :: %__MODULE__{
-          llm_client: module(),
+          llm_client: module() | struct(),
           failure_score: float()
         }
 
@@ -27,7 +29,7 @@ defmodule GEPA.Adapters.Basic do
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
     %__MODULE__{
-      llm_client: opts[:llm_client] || GEPA.LLM.Mock,
+      llm_client: opts[:llm_client] || opts[:llm] || Mock,
       failure_score: opts[:failure_score] || 0.0
     }
   end
@@ -41,7 +43,7 @@ defmodule GEPA.Adapters.Basic do
           GEPA.Adapter.candidate(),
           boolean()
         ) :: {:ok, GEPA.EvaluationBatch.t()}
-  def evaluate(%__MODULE__{} = _adapter, batch, candidate, capture_traces) do
+  def evaluate(%__MODULE__{} = adapter, batch, candidate, capture_traces) do
     # Extract instruction (assumes single component)
     instruction =
       case map_size(candidate) do
@@ -52,7 +54,7 @@ defmodule GEPA.Adapters.Basic do
     # Evaluate each example
     results =
       Enum.map(batch, fn example ->
-        evaluate_single(example, instruction, capture_traces)
+        evaluate_single(adapter, example, instruction, capture_traces)
       end)
 
     # Separate outputs, scores, trajectories
@@ -103,15 +105,15 @@ defmodule GEPA.Adapters.Basic do
 
   # Private helpers
 
-  defp evaluate_single(example, instruction, capture_traces) do
+  defp evaluate_single(%__MODULE__{} = adapter, example, instruction, capture_traces) do
     # Build messages
     messages = [
       %{role: "system", content: instruction},
       %{role: "user", content: example.input}
     ]
 
-    # Call LLM (using struct's client)
-    {:ok, %{content: response}} = GEPA.LLM.Mock.complete(messages)
+    prompt = "#{instruction}\n\nQuestion: #{example.input}\nAnswer:"
+    response = complete_with_configured_llm(adapter.llm_client, messages, prompt)
 
     # Check if answer appears in response
     score =
@@ -135,6 +137,34 @@ defmodule GEPA.Adapters.Basic do
       end
 
     {:ok, response, score, trajectory}
+  end
+
+  defp complete_with_configured_llm(llm_client, messages, prompt) when is_atom(llm_client) do
+    cond do
+      function_exported?(llm_client, :complete, 1) ->
+        case llm_client.complete(messages) do
+          {:ok, %{content: response}} -> response
+          {:ok, response} when is_binary(response) -> response
+          {:error, reason} -> "LLM error: #{inspect(reason)}"
+        end
+
+      function_exported?(llm_client, :complete, 3) ->
+        complete_with_facade(llm_client, prompt)
+
+      true ->
+        "LLM error: unsupported client #{inspect(llm_client)}"
+    end
+  end
+
+  defp complete_with_configured_llm(llm_client, _messages, prompt) do
+    complete_with_facade(llm_client, prompt)
+  end
+
+  defp complete_with_facade(llm_client, prompt) do
+    case GEPA.LLM.complete(llm_client, prompt) do
+      {:ok, response} -> response
+      {:error, reason} -> "LLM error: #{inspect(reason)}"
+    end
   end
 
   defp build_feedback_item(trajectory, score, _current_instruction) do

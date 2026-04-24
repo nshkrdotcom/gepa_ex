@@ -7,15 +7,16 @@ This directory contains working examples demonstrating various GEPA features and
 | Example | Description | Complexity | Run Time |
 |---------|-------------|------------|----------|
 | [01_quick_start.exs](01_quick_start.exs) | Simplest possible example (10 lines) | ⭐ Beginner | < 1 second |
-| [02_math_problems.exs](02_math_problems.exs) | Math word problems with epoch sampling | ⭐⭐ Intermediate | 1-2 seconds (mock), 1-2 mins (real LLM) |
+| [02_math_problems.exs](02_math_problems.exs) | Math word problems with epoch sampling | ⭐⭐ Intermediate | 1-2 seconds |
 | [03_custom_adapter.exs](03_custom_adapter.exs) | Build your own adapter | ⭐⭐⭐ Advanced | < 1 second |
 | [04_state_persistence.exs](04_state_persistence.exs) | Save/resume optimizations | ⭐⭐ Intermediate | < 1 second |
+| [05_llm_adapters.exs](05_llm_adapters.exs) | GEPA LLM facade with ReqLLM and Agent Session Manager adapters | ⭐⭐ Intermediate | < 1 second, then exactly one live call |
 
 ## Running Examples
 
-### With Mock LLM (No API Key Needed)
+### Deterministic Examples
 
-All examples work with mock LLM by default:
+Examples 01-04 use deterministic mock/fake LLM paths and make no live provider calls:
 
 ```bash
 mix run examples/01_quick_start.exs
@@ -24,23 +25,31 @@ mix run examples/03_custom_adapter.exs
 mix run examples/04_state_persistence.exs
 ```
 
-### With Real LLMs
+### Live Hosted Provider Smoke Test
 
-#### OpenAI (GPT-4o-mini)
-
-```bash
-export OPENAI_API_KEY=sk-...
-mix run examples/01_quick_start.exs
-mix run examples/02_math_problems.exs
-```
-
-#### Google Gemini (gemini-flash-lite-latest)
+`05_llm_adapters.exs` first demonstrates the GEPA LLM port with injected fake ReqLLM and ASM modules, then makes exactly one live hosted-provider call. It is not skipped automatically and it does not read shell variables. Pass credentials explicitly:
 
 ```bash
-export GEMINI_API_KEY=...
-mix run examples/01_quick_start.exs
-mix run examples/02_math_problems.exs
+mix run examples/05_llm_adapters.exs -- --provider openai --api-key sk-...
+mix run examples/05_llm_adapters.exs -- --provider gemini --api-key ...
+mix run examples/05_llm_adapters.exs -- --provider anthropic --api-key ...
 ```
+
+Use `--model` to override the adapter default:
+
+```bash
+mix run examples/05_llm_adapters.exs -- --provider openai --model gpt-4o-mini --api-key sk-...
+```
+
+### Run All Script
+
+`examples/run_all.sh` runs examples 01-04, then runs example 05. The script prints that the last step is live and forwards explicit CLI credentials to example 05:
+
+```bash
+examples/run_all.sh --provider openai --api-key sk-...
+```
+
+This script is intentionally not silent about the live call. It does not inspect shell variables or skip the live section.
 
 ## Example Details
 
@@ -72,13 +81,13 @@ Best score: 0.667
 **What it does:**
 - Optimizes math problem-solving
 - Uses EpochShuffledBatchSampler
-- Works with mock or real LLMs
+- Uses deterministic mock LLM output
 - Demonstrates domain-specific optimization
 
 **Key concepts:**
 - Domain-specific prompts
 - Advanced batch sampling
-- LLM provider selection
+- Deterministic adapter wiring
 - Performance measurement
 
 **Expected output:**
@@ -150,6 +159,21 @@ To continue, run this script again
 3. Repeat until target iterations reached
 4. To stop early: `touch ./tmp/gepa_example_run/gepa.stop`
 
+### 05_llm_adapters.exs
+
+**What it does:**
+- Builds GEPA LLM clients with `GEPA.LLM.req_llm/2` and `GEPA.LLM.agent/2`
+- Proves the public value is a `GEPA.LLM.Client`, not a raw ReqLLM or ASM object
+- Demonstrates structured output support through the ReqLLM adapter
+- Demonstrates ASM structured output failing closed
+- Runs exactly one live hosted-provider completion with explicit `--api-key`
+
+**Key concepts:**
+- Adapter injection for deterministic tests/examples
+- Hosted vs. local agent provider routing
+- Migration-safe `GEPA.LLM.Client` boundary
+- Capability checks for unsupported features
+
 ## Common Patterns
 
 ### Basic Optimization
@@ -167,19 +191,68 @@ best = GEPA.Result.best_candidate(result)
 score = GEPA.Result.best_score(result)
 ```
 
-### With Real LLM
+### With GEPA LLM Port Adapters
 
 ```elixir
-# OpenAI
-llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+# Hosted providers through the ReqLLM adapter.
+llm = GEPA.LLM.req_llm(:openai, api_key: "sk-...")
+llm = GEPA.LLM.req_llm(:gemini, api_key: "...")
+llm = GEPA.LLM.req_llm(:anthropic, api_key: "...")
 
-# Gemini
-llm = GEPA.LLM.ReqLLM.new(provider: :gemini)
+# Local Codex/Claude/Gemini/Amp through the Agent Session Manager adapter.
+llm = GEPA.LLM.agent(:codex, lane: :core, session: :my_session)
 
-# Mock (testing)
+# Mock for tests and deterministic examples.
 llm = GEPA.LLM.Mock.new()
 
 adapter = GEPA.Adapters.Basic.new(llm: llm)
+```
+
+`GEPA.LLM.req_llm/2` is a GEPA facade constructor. It returns `GEPA.LLM.Client` with `GEPA.LLM.Adapters.ReqLLM` stored behind the port. Optimizer/proposer code should call `GEPA.LLM.complete/3` or `GEPA.LLM.complete_structured/3`, not `ReqLLM.*`.
+
+### With The Default Adapter
+
+For a simple single-prompt task, pass `:task_lm` and GEPA will build `GEPA.Adapters.Default`:
+
+```elixir
+task_lm = fn messages ->
+  user = Enum.find(messages, &(&1.role == "user"))
+  "Answer for: #{user.content}"
+end
+
+{:ok, result} =
+  GEPA.optimize(
+    seed_candidate: %{"instruction" => "Answer exactly."},
+    trainset: [%{input: "What is 2+2?", answer: "4"}],
+    valset: [%{input: "What is 5+5?", answer: "10"}],
+    max_metric_calls: 20,
+    task_lm: task_lm
+  )
+```
+
+Use an explicit adapter when your task needs custom execution, tracing, tools, or non-chat inputs.
+
+### With Acceptance Criteria, Callbacks, And Cache
+
+```elixir
+cache = GEPA.EvaluationCache.new()
+
+callback = fn event_name, event ->
+  IO.inspect({event_name, event[:iteration]})
+end
+
+{:ok, result} =
+  GEPA.optimize(
+    seed_candidate: %{"instruction" => "..."},
+    trainset: trainset,
+    valset: valset,
+    adapter: adapter,
+    max_metric_calls: 50,
+    acceptance_criterion: :improvement_or_equal,
+    callbacks: [callback],
+    track_best_outputs: true,
+    evaluation_cache: cache
+  )
 ```
 
 ### With Epoch Shuffling
@@ -222,11 +295,10 @@ mix run examples/01_quick_start.exs
 
 ### Mock LLM gives strange results
 
-This is expected! Mock LLM returns canned responses. For realistic optimization:
+This is expected. Mock LLM returns deterministic responses. For a live hosted-provider smoke test:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-mix run examples/02_math_problems.exs
+mix run examples/05_llm_adapters.exs -- --provider openai --api-key sk-...
 ```
 
 ### State file corrupted

@@ -77,6 +77,8 @@ defmodule GEPA.Strategies.CandidateSelector.CurrentBest do
 
   @behaviour GEPA.Strategies.CandidateSelector
 
+  alias GEPA.Strategies.EvaluationPolicy.Full
+
   @doc """
   Return the index of the best-scoring program using average score and coverage.
   """
@@ -85,7 +87,7 @@ defmodule GEPA.Strategies.CandidateSelector.CurrentBest do
     state.prog_candidate_val_subscores
     |> Enum.with_index()
     |> Enum.map(fn {scores, idx} ->
-      {avg, count} = GEPA.Strategies.EvaluationPolicy.Full.calculate_avg_and_coverage(scores)
+      {avg, count} = Full.calculate_avg_and_coverage(scores)
       {idx, avg, count}
     end)
     |> Enum.max_by(fn {_idx, avg, coverage} -> {avg, coverage} end, fn -> {0, 0.0, 0} end)

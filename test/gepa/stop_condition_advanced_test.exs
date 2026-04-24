@@ -3,8 +3,8 @@ defmodule GEPA.StopConditionAdvancedTest do
 
   # TDD RED PHASE: Additional Stop Conditions
 
-  alias GEPA.StopCondition.{Timeout, NoImprovement}
   alias GEPA.State
+  alias GEPA.StopCondition.{NoImprovement, Timeout}
 
   describe "Timeout - RED PHASE" do
     test "creates timeout with duration" do

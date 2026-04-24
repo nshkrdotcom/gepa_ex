@@ -14,12 +14,14 @@ defmodule GEPA.Adapter do
 
   ## Required Callbacks
 
-  - `evaluate/3`: Execute program on batch and return scores
-  - `make_reflective_dataset/3`: Extract feedback from execution traces
+  - `evaluate/4`: Execute program on batch and return scores
+  - `make_reflective_dataset/4`: Extract feedback from execution traces
 
   ## Optional Callbacks
 
   - `propose_new_texts/3`: Custom instruction proposal logic
+  - `get_adapter_state/1`: Snapshot adapter-owned persistent state
+  - `set_adapter_state/2`: Restore adapter-owned persistent state after resume
 
   ## Example Implementation
 
@@ -27,13 +29,13 @@ defmodule GEPA.Adapter do
         @behaviour GEPA.Adapter
 
         @impl true
-        def evaluate(batch, candidate, capture_traces) do
+        def evaluate(adapter, batch, candidate, capture_traces) do
           # Run program on batch
           # Return {:ok, %GEPA.EvaluationBatch{}}
         end
 
         @impl true
-        def make_reflective_dataset(candidate, eval_batch, components) do
+        def make_reflective_dataset(adapter, candidate, eval_batch, components) do
           # Extract feedback from trajectories
           # Return {:ok, dataset_map}
         end
@@ -51,6 +53,7 @@ defmodule GEPA.Adapter do
   ## Parameters
 
   - `batch`: List of data instances to evaluate
+  - `adapter`: Adapter struct or state
   - `candidate`: Program as map of component name -> component text
   - `capture_traces`: Whether to capture execution trajectories for reflection
 
@@ -73,6 +76,7 @@ defmodule GEPA.Adapter do
   - GEPA uses `mean(scores)` for validation set tracking
   """
   @callback evaluate(
+              adapter :: term(),
               batch :: [data_inst()],
               candidate :: candidate(),
               capture_traces :: boolean()
@@ -82,12 +86,13 @@ defmodule GEPA.Adapter do
   Build reflective dataset from execution traces.
 
   Extracts actionable feedback from trajectories to guide instruction refinement.
-  Only called when `evaluate/3` was called with `capture_traces=true`.
+  Only called when `evaluate/4` was called with `capture_traces=true`.
 
   ## Parameters
 
   - `candidate`: The candidate that was evaluated
-  - `eval_batch`: Results from evaluate/3 with trajectories
+  - `adapter`: Adapter struct or state
+  - `eval_batch`: Results from evaluate/4 with trajectories
   - `components_to_update`: Subset of component names to generate feedback for
 
   ## Returns
@@ -110,6 +115,7 @@ defmodule GEPA.Adapter do
   - If using randomness for sampling, seed the RNG for determinism
   """
   @callback make_reflective_dataset(
+              adapter :: term(),
               candidate :: candidate(),
               eval_batch :: eval_batch(),
               components_to_update :: [String.t()]
@@ -124,7 +130,7 @@ defmodule GEPA.Adapter do
   ## Parameters
 
   - `candidate`: Current candidate program
-  - `reflective_dataset`: Feedback dataset from make_reflective_dataset/3
+  - `reflective_dataset`: Feedback dataset from make_reflective_dataset/4
   - `components_to_update`: Components to propose new text for
 
   ## Returns
@@ -143,5 +149,38 @@ defmodule GEPA.Adapter do
               components_to_update :: [String.t()]
             ) :: {:ok, %{String.t() => String.t()}} | {:error, term()}
 
-  @optional_callbacks propose_new_texts: 3
+  @doc """
+  Optional: Custom instruction proposal logic with adapter state.
+
+  Prefer this arity for new adapters. `propose_new_texts/3` remains supported
+  for backward compatibility with early `gepa_ex` adapters.
+  """
+  @callback propose_new_texts(
+              adapter :: term(),
+              candidate :: candidate(),
+              reflective_dataset :: reflective_dataset(),
+              components_to_update :: [String.t()]
+            ) :: {:ok, %{String.t() => String.t()}} | {:error, term()}
+
+  @doc """
+  Optional: Return adapter-specific state for checkpoint persistence.
+
+  The returned value must be a fresh map and should be safe to serialize. GEPA
+  stores it opaquely in `GEPA.State.adapter_state` and never inspects it.
+  """
+  @callback get_adapter_state(adapter :: term()) :: map() | {:ok, map()}
+
+  @doc """
+  Optional: Restore adapter-specific state from a checkpoint.
+
+  Mutable adapters may update their internal process/resource and return `:ok`.
+  Pure data adapters may return an updated adapter struct; the current engine
+  treats that as advisory because adapter structs are passed in user config.
+  """
+  @callback set_adapter_state(adapter :: term(), state :: map()) :: :ok | {:ok, term()} | term()
+
+  @optional_callbacks propose_new_texts: 3,
+                      propose_new_texts: 4,
+                      get_adapter_state: 1,
+                      set_adapter_state: 2
 end

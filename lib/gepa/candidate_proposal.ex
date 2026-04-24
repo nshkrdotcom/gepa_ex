@@ -17,6 +17,7 @@ defmodule GEPA.CandidateProposal do
   - `metadata`: Additional proposal-specific data
   """
 
+  alias GEPA.Strategies.Acceptance
   alias GEPA.Types
 
   @type t :: %__MODULE__{
@@ -41,9 +42,10 @@ defmodule GEPA.CandidateProposal do
   ]
 
   @doc """
-  Check if proposal should be accepted based on score improvement.
+  Check if proposal should be accepted.
 
-  Acceptance criterion: sum of new scores > sum of old scores
+  The default acceptance criterion is strict improvement:
+  `sum(new_scores) > sum(old_scores)`.
 
   ## Examples
 
@@ -68,13 +70,15 @@ defmodule GEPA.CandidateProposal do
       false
   """
   @spec should_accept?(t()) :: boolean()
-  def should_accept?(%__MODULE__{
-        subsample_scores_before: before,
-        subsample_scores_after: after_scores
-      })
-      when is_list(before) and is_list(after_scores) do
-    Enum.sum(after_scores) > Enum.sum(before)
+  def should_accept?(proposal), do: should_accept?(proposal, :strict_improvement, nil)
+
+  @doc """
+  Check if proposal should be accepted using a configurable criterion.
+  """
+  @spec should_accept?(t(), Acceptance.criterion() | nil, GEPA.State.t() | nil) :: boolean()
+  def should_accept?(%__MODULE__{} = proposal, criterion, state) do
+    Acceptance.should_accept?(proposal, criterion, state)
   end
 
-  def should_accept?(_), do: false
+  def should_accept?(_, _, _), do: false
 end

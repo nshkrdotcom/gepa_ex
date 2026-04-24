@@ -46,20 +46,22 @@ defmodule GepaEx.MixProject do
     [
       # Core dependencies
       {:jason, "~> 1.4"},
-      {:telemetry, "~> 1.2"},
+      {:telemetry, "~> 1.4"},
 
       # LLM integration
-      {:req_llm, "~> 1.0.0-rc.7"},
-      {:req, "~> 0.5.0"},
+      {:req_llm, "~> 1.10"},
+      {:agent_session_manager, path: "../agent_session_manager"},
+      {:req, "~> 0.5.17"},
 
       # Development and testing
-      {:mox, "~> 1.1", only: :test},
-      {:stream_data, "~> 1.1", only: :test},
-      {:supertester, "~> 0.3", only: :test},
-      {:excoveralls, "~> 0.18", only: :test},
-      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:mox, "~> 1.2", only: :test},
+      {:plug, "~> 1.19", only: :test},
+      {:stream_data, "~> 1.3", only: :test},
+      {:supertester, "~> 0.6.0", only: :test},
+      {:excoveralls, "~> 0.18.5", only: :test},
+      {:ex_doc, "~> 0.40.1", only: :dev, runtime: false},
+      {:credo, "~> 1.7.18", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -114,7 +116,8 @@ defmodule GepaEx.MixProject do
           GEPA.Proposer.MergeUtils,
           GEPA.Proposer.Reflective,
           GEPA.CandidateProposal,
-          GEPA.EvaluationBatch
+          GEPA.EvaluationBatch,
+          GEPA.EvaluationCache
         ],
         Strategies: [
           GEPA.Strategies.CandidateSelector,
@@ -139,9 +142,17 @@ defmodule GepaEx.MixProject do
         ],
         "LLM & Adapters": [
           GEPA.LLM,
+          GEPA.LLM.Client,
+          GEPA.LLM.Request,
+          GEPA.LLM.Response,
+          GEPA.LLM.Capabilities,
+          GEPA.LLM.Tool,
+          GEPA.LLM.Adapters.ReqLLM,
+          GEPA.LLM.Adapters.AgentSessionManager,
           GEPA.LLM.ReqLLM,
           GEPA.LLM.Mock,
-          GEPA.Adapters.Basic
+          GEPA.Adapters.Basic,
+          GEPA.Adapters.Default
         ],
         Utilities: [
           GEPA.Utils,

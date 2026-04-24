@@ -28,7 +28,7 @@ defmodule GEPA.Proposer.InstructionProposal do
 
   ## Example
 
-      llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+      llm = GEPA.LLM.req_llm(:openai)
       proposal = InstructionProposal.new(llm: llm)
 
       dataset = [
@@ -106,7 +106,7 @@ defmodule GEPA.Proposer.InstructionProposal do
 
   ## Examples
 
-      llm = GEPA.LLM.ReqLLM.new(provider: :openai)
+      llm = GEPA.LLM.req_llm(:openai)
       proposal = InstructionProposal.new(llm: llm)
 
       # With custom template
@@ -266,7 +266,7 @@ defmodule GEPA.Proposer.InstructionProposal do
   defp default_format_dataset(dataset) do
     dataset
     |> Enum.with_index(1)
-    |> Enum.map(fn {item, i} ->
+    |> Enum.map_join("\n---\n", fn {item, i} ->
       inputs = item["Inputs"] || %{}
       outputs = item["Generated Outputs"] || "N/A"
       feedback = item["Feedback"] || "No feedback"
@@ -292,12 +292,10 @@ defmodule GEPA.Proposer.InstructionProposal do
       #{feedback}
       """
     end)
-    |> Enum.join("\n---\n")
   end
 
   defp extract_instruction(%__MODULE__{extract_fn: nil}, response) do
-    # Default: take whole response, strip whitespace
-    String.trim(response)
+    extract_fenced_instruction(response)
   end
 
   defp extract_instruction(%__MODULE__{extract_fn: extract_fn}, response) do
@@ -306,5 +304,46 @@ defmodule GEPA.Proposer.InstructionProposal do
 
   defp extract_structured_instruction(result) when is_map(result) do
     Map.get(result, "instruction") || Map.get(result, :instruction) || ""
+  end
+
+  defp extract_fenced_instruction(response) when is_binary(response) do
+    trimmed = String.trim(response)
+    first = :binary.match(trimmed, "```")
+    last = reverse_match(trimmed, "```")
+
+    case {first, last} do
+      {{start, 3}, {finish, 3}} when start < finish ->
+        trimmed
+        |> binary_part(start + 3, finish - start - 3)
+        |> strip_optional_language()
+
+      {{0, 3}, _} ->
+        trimmed
+        |> strip_opening_fence()
+        |> strip_optional_language()
+
+      {_, {finish, 3}} when finish + 3 == byte_size(trimmed) ->
+        trimmed
+        |> binary_part(0, finish)
+        |> String.trim()
+
+      _ ->
+        trimmed
+    end
+  end
+
+  defp reverse_match(text, pattern) do
+    text
+    |> :binary.matches(pattern)
+    |> List.last()
+  end
+
+  defp strip_opening_fence("```" <> rest), do: rest
+  defp strip_opening_fence(text), do: text
+
+  defp strip_optional_language(text) do
+    text
+    |> String.replace(~r/^\S*\n/, "", global: false)
+    |> String.trim()
   end
 end

@@ -7,10 +7,10 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
   use GEPA.SupertesterCase, isolation: :full_isolation, async: false
 
   @moduletag :integration
-  @moduletag timeout: 30000
+  @moduletag timeout: 30_000
 
-  alias GEPA.LLM.Mock
   alias GEPA.Adapters.Basic
+  alias GEPA.LLM.Mock
 
   describe "GEPA.optimize with reflection_llm integration" do
     test "full optimization with LLM-based instruction proposal" do
@@ -66,7 +66,7 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
       llm_calls = :ets.tab2list(call_log)
       :ets.delete(call_log)
 
-      assert length(llm_calls) > 0, "LLM should have been called at least once"
+      assert llm_calls != [], "LLM should have been called at least once"
 
       # Verify prompts contain expected content
       prompts = Enum.map(llm_calls, fn {_, %{prompt: p}} -> p end)
@@ -110,7 +110,7 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
       prompts = :ets.tab2list(captured_prompts) |> Enum.map(&elem(&1, 1))
       :ets.delete(captured_prompts)
 
-      if length(prompts) > 0 do
+      if prompts != [] do
         # At least one prompt should use our custom template
         assert Enum.any?(prompts, &String.contains?(&1, "===CUSTOM_TEMPLATE_START===")),
                "Custom template markers should appear in prompts"
@@ -150,7 +150,7 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
         )
 
       # Should have generated some candidates
-      assert length(result.candidates) >= 1
+      assert result.candidates != []
 
       # LLM should have been called multiple times
       assert :counters.get(iteration_counter, 1) > 0
@@ -226,7 +226,7 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
       :ets.delete(dataset_calls)
 
       # make_reflective_dataset should have been called
-      assert length(calls) > 0, "make_reflective_dataset should be called when using LLM"
+      assert calls != [], "make_reflective_dataset should be called when using LLM"
 
       # Verify structure of calls
       {_, first_call} = hd(calls)

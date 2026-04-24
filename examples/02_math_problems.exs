@@ -10,15 +10,13 @@
 # - More realistic training data
 # - EpochShuffledBatchSampler for better training
 # - Custom evaluation metrics
-# - Real LLM integration (optional)
+# - Deterministic mock LLM execution
 #
 # ## To run with mock LLM:
 #   mix run examples/02_math_problems.exs
 #
-# ## To run with real LLM:
-#   OPENAI_API_KEY=sk-... mix run examples/02_math_problems.exs
-#   # or
-#   GEMINI_API_KEY=... mix run examples/02_math_problems.exs
+# This example is not live. It uses a deterministic mock LLM.
+# See examples/05_llm_adapters.exs for a live hosted-provider smoke test.
 
 # Mix.install([{:gepa_ex, path: "."}])
 
@@ -75,21 +73,12 @@ Seed instruction:
 #{seed_candidate["instruction"]}
 """)
 
-# Choose LLM based on environment
+IO.puts("ℹ️  Using deterministic Mock LLM. This example makes no live LLM calls.\n")
+
 llm =
-  cond do
-    System.get_env("OPENAI_API_KEY") ->
-      IO.puts("✨ Using OpenAI (gpt-4o-mini)\n")
-      GEPA.LLM.ReqLLM.new(provider: :openai)
-
-    System.get_env("GEMINI_API_KEY") || System.get_env("GOOGLE_API_KEY") ->
-      IO.puts("✨ Using Gemini (gemini-flash-lite-latest)\n")
-      GEPA.LLM.ReqLLM.new(provider: :gemini)
-
-    true ->
-      IO.puts("ℹ️  Using Mock LLM (set OPENAI_API_KEY or GEMINI_API_KEY for real optimization)\n")
-      GEPA.LLM.Mock.new()
-  end
+  GEPA.LLM.Mock.new(response_fn: fn _prompt ->
+    "The answer is 8, 30, 40, 32, 72, 50, or 36."
+  end)
 
 # Create adapter with chosen LLM
 adapter = GEPA.Adapters.Basic.new(llm: llm)
@@ -117,14 +106,15 @@ IO.puts("   (This may take a minute with real LLMs)\n")
 # Analyze results
 best_candidate = GEPA.Result.best_candidate(result)
 best_score = GEPA.Result.best_score(result)
-improvement = (best_score - result.program_full_scores_val_set[0]) * 100
+initial_score = List.first(result.val_aggregate_scores) || 0.0
+improvement = (best_score - initial_score) * 100
 
 IO.puts("""
 
 ✅ Optimization Complete!
 ========================
 
-Initial validation score: #{Float.round(result.program_full_scores_val_set[0], 3)}
+Initial validation score: #{Float.round(initial_score, 3)}
 Best validation score: #{Float.round(best_score, 3)}
 Improvement: +#{Float.round(improvement, 1)} percentage points
 
@@ -141,7 +131,7 @@ Total evaluations: #{result.total_num_evals}
 
 🚀 Next steps:
 - Try with more training examples
-- Use real LLM for better results
+- Use examples/05_llm_adapters.exs to smoke-test a live hosted provider
 - Increase max_metric_calls to 50+
 - See examples/03_custom_adapter.exs for custom evaluation
 """)
