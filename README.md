@@ -218,7 +218,7 @@ Pass a custom `:evaluator` if answer containment is not the right metric.
 When `../agent_session_manager` is available, GEPA can also route local agent calls through the same facade:
 
 ```elixir
-client = GEPA.LLM.agent(:codex, lane: :core, session: :my_session)
+client = GEPA.LLM.agent(:codex, lane: :core, session: "gepa_my_session")
 {:ok, text} = GEPA.LLM.complete(client, "Summarize this GEPA run")
 ```
 

@@ -129,7 +129,7 @@ defmodule GEPA.Examples.LiveCLI do
 
     ASM Options:
       --lane auto|core|sdk       ASM lane, defaults to auto when omitted
-      --session VALUE            ASM session identifier when session/streaming is needed
+      --session VALUE            Optional ASM session id for named managed runs
 
     Default Models:
       --adapter req_llm --provider openai     -> gpt-5.4-mini

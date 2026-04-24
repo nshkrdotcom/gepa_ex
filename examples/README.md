@@ -40,7 +40,7 @@ For Agent Session Manager:
 - The selected local provider CLI configured outside GEPA.
 - Provider selected with `--provider codex`, `--provider codex_exec`, `--provider claude`, `--provider gemini`, or `--provider amp`.
 - Optional `--lane auto|core|sdk`.
-- Optional `--session NAME`; required for streaming.
+- Optional `--session NAME` for a named managed ASM session. Completion passes it to ASM as `session_id`; streaming starts a managed session and closes it when the stream is consumed.
 
 Codex through ASM:
 
@@ -182,7 +182,7 @@ mix run examples/05_llm_adapters.exs -- \
   --input "Return an improved instruction for a concise QA assistant."
 ```
 
-Streaming requires an ASM session:
+Streaming is available through ASM. The adapter emits text chunks, not raw ASM event structs:
 
 ```bash
 mix run examples/05_llm_adapters.exs -- \
@@ -256,6 +256,6 @@ Calling an example without required args prints the same help plus concrete miss
 - Missing `--adapter` or `--provider`: choose both explicitly.
 - Missing `--api-key` with ReqLLM: pass the key with `--api-key`.
 - ASM provider failure: confirm the local provider CLI works outside GEPA and that the selected `--lane` is valid.
-- Streaming failure: pass `--session` with ASM.
+- Streaming failure: use `--adapter asm`; ReqLLM streaming is intentionally not exposed by this temporary facade.
 - Structured output failure with ASM: use ReqLLM for structured output until ASM has a native structured-output contract.
 - JSONL load failure: verify each line is valid JSON and uses the fields required by the selected example.

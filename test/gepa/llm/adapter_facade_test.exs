@@ -26,20 +26,63 @@ defmodule GEPA.LLM.AdapterFacadeTest do
   end
 
   defmodule FakeASM do
-    def query(target, prompt, opts) do
+    def query(provider, prompt, opts) when is_atom(provider) and is_binary(prompt) do
       {:ok,
        %{
          run_id: "run-1",
          session_id: "session-1",
-         text: "asm:#{inspect(target)}:#{prompt}",
+         text: "asm:#{inspect(provider)}:#{prompt}",
          cost: %{usd: 0.0},
          stop_reason: :stop,
-         metadata: %{opts: opts}
+         metadata: %{target: provider, opts: opts}
        }}
     end
 
-    def stream(_session, _prompt, _opts), do: ["a", "b"]
-    def stop_session(_session), do: :ok
+    def query(session, prompt, opts) when is_pid(session) and is_binary(prompt) do
+      {:ok,
+       %{
+         run_id: "run-1",
+         session_id: "session-1",
+         text: "asm:pid:#{prompt}",
+         cost: %{usd: 0.0},
+         stop_reason: :stop,
+         metadata: %{target: session, opts: opts}
+       }}
+    end
+
+    def start_session(opts) do
+      send(self(), {:start_session, opts})
+      {:ok, self()}
+    end
+
+    def stream(session, _prompt, _opts) when is_pid(session) do
+      [
+        %ASM.Event{
+          id: "event-1",
+          run_id: "run-1",
+          session_id: "session-1",
+          provider: :codex,
+          kind: :assistant_delta,
+          payload: %CliSubprocessCore.Payload.AssistantDelta{content: "a", metadata: %{}},
+          timestamp: DateTime.utc_now()
+        },
+        %ASM.Event{
+          id: "event-2",
+          run_id: "run-1",
+          session_id: "session-1",
+          provider: :codex,
+          kind: :run_started,
+          payload: nil,
+          timestamp: DateTime.utc_now()
+        },
+        "b"
+      ]
+    end
+
+    def stop_session(session) do
+      send(self(), {:stop_session, session})
+      :ok
+    end
   end
 
   describe "ReqLLM client facade" do
@@ -125,6 +168,29 @@ defmodule GEPA.LLM.AdapterFacadeTest do
       assert response.metadata.run_id == "run-1"
       assert response.metadata.session_id == "session-1"
       assert response.metadata.lane == :core
+    end
+
+    test "complete/3 passes named ASM sessions as session_id query options" do
+      client = GEPA.LLM.agent(:codex, asm_module: FakeASM, lane: :core, session: "gepa-test")
+      request = Request.from_prompt("hello")
+
+      assert {:ok, response} = client.adapter.complete(client, request)
+      assert response.text == "asm::codex:hello"
+      assert response.session_ref == "gepa-test"
+      assert response.metadata.opts[:session_id] == "gepa-test"
+      assert response.metadata.target == :codex
+    end
+
+    test "stream/3 starts and closes a managed ASM session for named sessions" do
+      client = GEPA.LLM.agent(:codex, asm_module: FakeASM, lane: :core, session: "gepa-stream")
+
+      assert {:ok, stream} = GEPA.LLM.stream(client, "hello")
+      assert Enum.to_list(stream) == ["a", "b"]
+      assert_received {:start_session, opts}
+      assert opts[:provider] == :codex
+      assert opts[:session_id] == "gepa-stream"
+      assert opts[:lane] == :core
+      assert_received {:stop_session, pid} when pid == self()
     end
 
     test "structured output fails closed for ASM" do

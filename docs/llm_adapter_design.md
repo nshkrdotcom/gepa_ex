@@ -23,7 +23,7 @@ client = GEPA.LLM.req_llm(:anthropic)
 {:ok, object} = GEPA.LLM.complete_structured(client, "Improve this instruction")
 
 # Local/CLI providers through Agent Session Manager
-agent = GEPA.LLM.agent(:codex, lane: :core, session: :my_session)
+agent = GEPA.LLM.agent(:codex, lane: :core, session: "gepa_my_session")
 {:ok, text} = GEPA.LLM.complete(agent, "Summarize this run")
 ```
 
@@ -71,7 +71,9 @@ Responsibilities:
   - `:amp`
 - Lane selection with `:auto`, `:core`, or `:sdk`.
 - Text completion through `ASM.query/3`.
-- Streaming through `ASM.stream/3` when a session is available.
+- Named sessions through ASM `session_id:` when `session` is a string.
+- Streaming through `ASM.stream/3`, normalized to text chunks for GEPA callers.
+- Managed streaming sessions are started and closed by the adapter when the facade has a string session id or no pid session.
 - Session close through `ASM.stop_session/1`.
 - Response normalization into `GEPA.LLM.Response`.
 - Test injection seam through `:asm_module`.

@@ -86,11 +86,11 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
   end
 
   def complete(%Client{adapter_state: %__MODULE__{} = state}, %Request{} = request) do
-    target = request.session || state.session || state.provider
     prompt = request_prompt!(request)
     opts = build_query_opts(state, request)
+    {target, query_opts} = query_target_and_opts(state, request, opts)
 
-    case state.asm_module.query(target, prompt, opts) do
+    case state.asm_module.query(target, prompt, query_opts) do
       {:ok, result} ->
         {:ok, normalize_result(state, request, result)}
 
@@ -103,15 +103,19 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
   end
 
   @spec stream(Client.t(), Request.t()) :: {:ok, Enumerable.t()} | {:error, term()}
-  def stream(%Client{adapter_state: %__MODULE__{session: nil}}, %Request{session: nil}) do
-    {:error, {:missing_session, :stream_requires_session}}
-  end
-
   def stream(%Client{adapter_state: %__MODULE__{} = state}, %Request{} = request) do
-    session = request.session || state.session
     prompt = request_prompt!(request)
+    opts = build_stream_opts(state, request)
 
-    {:ok, state.asm_module.stream(session, prompt, build_stream_opts(state, request))}
+    with {:ok, session, stream_opts, ownership} <- stream_session(state, request, opts) do
+      stream =
+        session
+        |> state.asm_module.stream(prompt, stream_opts)
+        |> maybe_close_after_stream(session, ownership, state.asm_module)
+        |> normalize_stream()
+
+      {:ok, stream}
+    end
   rescue
     error ->
       {:error, Exception.message(error)}
@@ -164,6 +168,80 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
     state.stream_opts
     |> Keyword.merge(common_opts(state, request))
   end
+
+  defp query_target_and_opts(%__MODULE__{} = state, %Request{} = request, opts) do
+    case request.session || state.session do
+      session when is_pid(session) ->
+        {session, opts}
+
+      session_id when is_binary(session_id) and session_id != "" ->
+        {state.provider, Keyword.put(opts, :session_id, session_id)}
+
+      _session ->
+        {state.provider, opts}
+    end
+  end
+
+  defp stream_session(%__MODULE__{} = state, %Request{} = request, opts) do
+    case request.session || state.session do
+      session when is_pid(session) ->
+        {:ok, session, opts, :external}
+
+      session_id when is_binary(session_id) and session_id != "" ->
+        start_managed_stream_session(state, Keyword.put(opts, :session_id, session_id))
+
+      _session ->
+        start_managed_stream_session(state, opts)
+    end
+  end
+
+  defp start_managed_stream_session(%__MODULE__{} = state, opts) do
+    start_opts = Keyword.put(opts, :provider, state.provider)
+    stream_opts = Keyword.drop(opts, [:session_id, :provider, :name, :options])
+
+    with {:ok, session} <- state.asm_module.start_session(start_opts) do
+      {:ok, session, stream_opts, :managed}
+    end
+  end
+
+  defp maybe_close_after_stream(stream, session, :managed, asm_module) do
+    Elixir.Stream.transform(
+      stream,
+      fn -> :ok end,
+      fn event, acc -> {[event], acc} end,
+      fn _acc -> asm_module.stop_session(session) end
+    )
+  end
+
+  defp maybe_close_after_stream(stream, _session, :external, _asm_module), do: stream
+
+  defp normalize_stream(stream) do
+    Elixir.Stream.flat_map(stream, &stream_text_chunks/1)
+  end
+
+  defp stream_text_chunks(chunk) when is_binary(chunk), do: text_chunk(chunk)
+
+  defp stream_text_chunks(%ASM.Event{} = event) do
+    event
+    |> ASM.Event.assistant_text()
+    |> text_chunk()
+  end
+
+  defp stream_text_chunks(%ASM.Message.Partial{content_type: :text, delta: delta}) do
+    text_chunk(delta)
+  end
+
+  defp stream_text_chunks(%ASM.Message.Assistant{content: blocks}) do
+    Enum.flat_map(blocks, &content_text_chunk/1)
+  end
+
+  defp stream_text_chunks(_chunk), do: []
+
+  defp content_text_chunk(%ASM.Content.Text{text: text}), do: text_chunk(text)
+  defp content_text_chunk(_block), do: []
+
+  defp text_chunk(text) when is_binary(text) and text != "", do: [text]
+  defp text_chunk(_text), do: []
 
   defp common_opts(%__MODULE__{} = state, %Request{} = request) do
     [
