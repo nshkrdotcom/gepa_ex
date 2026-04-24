@@ -87,7 +87,7 @@ llm = GEPA.LLM.req_llm(:openai)
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 ```
 
-For backward compatibility, the default remains the legacy `GEPA.LLM.Mock` module path. Passing `:llm` or `:llm_client` can use any facade-compatible client or legacy module.
+For backward compatibility, `GEPA.Adapters.Basic` still accepts `:llm` or `:llm_client`, but examples pass an explicit facade-compatible live client.
 
 ## Structured Instruction Extraction
 
@@ -98,12 +98,12 @@ For backward compatibility, the default remains the legacy `GEPA.LLM.Mock` modul
 
 ## Testing Strategy
 
-The facade is tested without provider credentials by injecting fake ReqLLM and ASM modules. This keeps the TDD loop deterministic while proving that GEPA routes through the adapter boundary.
+The facade is tested without provider credentials by injecting test-double modules. This keeps the TDD loop repeatable while proving that GEPA routes through the adapter boundary.
 
 Relevant examples:
 
-- `examples/01_quick_start.exs`: no-key deterministic mock path.
-- `examples/05_llm_adapters.exs`: no-key facade demonstration followed by one explicit live hosted-provider call using CLI args.
+- `examples/01_quick_start.exs`: live optimization over user-provided JSONL data.
+- `examples/05_llm_adapters.exs`: one explicit live adapter call through ReqLLM or ASM.
 
 ## Quality Gates
 

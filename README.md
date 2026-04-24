@@ -64,14 +64,13 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 **Production LLM Integration:**
 - ✅ `GEPA.LLM` - Unified LLM behavior
 - ✅ `GEPA.LLM.req_llm/2` - Hosted provider facade via ReqLLM
-  - OpenAI support (GPT-4o-mini default)
+  - OpenAI support (`gpt-5.4-mini` default)
   - Google Gemini support (gemini-flash-lite-latest)
   - Anthropic support through ReqLLM
   - Error handling, retries, timeouts
   - Configurable via explicit runtime options or application config
 - ✅ `GEPA.LLM.agent/2` - Local CLI/agent facade via Agent Session Manager
 - ✅ `GEPA.LLM.ReqLLM` - Backward-compatible ReqLLM wrapper
-- ✅ `GEPA.LLM.Mock` - Testing implementation with flexible responses
 
 **Advanced Batch Sampling:**
 - ✅ `GEPA.Strategies.BatchSampler.EpochShuffled` - Epoch-based training with shuffling
@@ -79,7 +78,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ Better training dynamics than simple sampling
 
 **Working Examples:**
-- ✅ 5 .exs script examples (quick start, math, custom adapter, persistence, LLM adapters)
+- ✅ 5 live-only .exs script examples (quick start, math, custom adapter, persistence, LLM adapters)
 - ✅ 3 Livebook notebooks (interactive learning)
 - ✅ Comprehensive examples/README.md guide
 - ✅ Livebook guide with visualizations
@@ -138,38 +137,36 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 
 ## Quick Start
 
-### With Mock LLM (No API Key Required)
+### Live Examples
 
-```elixir
-# Define training data
-trainset = [
-  %{input: "What is 2+2?", answer: "4"},
-  %{input: "What is 3+3?", answer: "6"}
-]
+The scripts in `examples/` are live-only. They do not choose a default provider or adapter, do not inspect ambient shell credential state, and do not contain built-in datasets. Pass explicit provider configuration and your own JSONL data.
 
-valset = [%{input: "What is 5+5?", answer: "10"}]
+ReqLLM OpenAI:
 
-# Create adapter with mock LLM (for testing)
-adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
-
-# Run optimization
-{:ok, result} = GEPA.optimize(
-  seed_candidate: %{"instruction" => "You are a helpful assistant."},
-  trainset: trainset,
-  valset: valset,
-  adapter: adapter,
-  max_metric_calls: 50
-)
-
-# Access results
-best_program = GEPA.Result.best_candidate(result)
-best_score = GEPA.Result.best_score(result)
-
-IO.puts("Best score: #{best_score}")
-IO.puts("Iterations: #{result.i}")
+```bash
+mix run examples/01_quick_start.exs -- \
+  --adapter req_llm \
+  --provider openai \
+  --api-key sk-... \
+  --train-jsonl /path/to/qa_train.jsonl \
+  --val-jsonl /path/to/qa_val.jsonl
 ```
 
-### With Production LLMs (NEW!)
+ASM Codex:
+
+```bash
+mix run examples/01_quick_start.exs -- \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_quick_start \
+  --train-jsonl /path/to/qa_train.jsonl \
+  --val-jsonl /path/to/qa_val.jsonl
+```
+
+See [Examples overview](examples/README.md) for the full onboarding guide, data schemas, `run_all.sh`, cost warnings, and troubleshooting.
+
+### With Production LLMs
 
 ```elixir
 # OpenAI through the ReqLLM adapter
@@ -193,8 +190,6 @@ adapter = GEPA.Adapters.Basic.new(llm: llm)
   max_metric_calls: 50
 )
 ```
-
-See [Examples overview](examples/README.md) for complete working examples!
 
 ### With The Default Adapter
 
@@ -310,7 +305,7 @@ end
   )
 ```
 
-When `reflection_llm` is not provided, GEPA falls back to a simple testing-only improvement marker (`"[Optimized]"`).
+When `reflection_llm` is not provided, GEPA uses a simple placeholder improvement marker. Production runs should provide `reflection_llm`.
 
 ### Interactive Livebooks (NEW!)
 
@@ -400,7 +395,7 @@ GEPA.Engine ← Behaviors → User Implementations
 
 ### v0.1.0 (2025-10-29)
 - Initial release with Phase 1 & 2 complete
-- Production LLM integration (OpenAI GPT-4o-mini, Google Gemini Flash Lite)
+- Production LLM integration (OpenAI `gpt-5.4-mini`, Google Gemini Flash Lite)
 - Core optimization engine with reflective and merge proposers
 - Incremental evaluation and advanced stop conditions
 - 218 tests passing with 75.4% coverage
