@@ -19,8 +19,26 @@ defmodule GEPA.StateTest do
       assert state.program_candidates == [seed_candidate]
       assert state.parent_program_for_candidate == [[nil]]
       assert state.list_of_named_predictors == ["instruction"]
-      assert state.i == 0
+      assert state.i == -1
+      assert state.num_full_ds_evals == 1
       assert state.total_num_evals == 2
+      assert state.num_metric_calls_by_discovery == [0]
+    end
+
+    test "uses explicit seed metric call metadata" do
+      seed_candidate = %{"instruction" => "You are helpful"}
+
+      eval_batch = %GEPA.EvaluationBatch{
+        outputs: ["out1", "out2"],
+        scores: [0.8, 0.9],
+        num_metric_calls: 7
+      }
+
+      state = State.new(seed_candidate, eval_batch, [0, 1])
+
+      assert state.total_num_evals == 7
+      assert state.num_full_ds_evals == 1
+      assert state.num_metric_calls_by_discovery == [0]
     end
 
     test "initializes Pareto fronts with seed scores" do
@@ -139,8 +157,9 @@ defmodule GEPA.StateTest do
       {new_state, _} =
         State.add_program(state, %{"instruction" => "new"}, [0], %{0 => 0.8, 1 => 0.9})
 
-      assert new_state.num_full_ds_evals == 1
+      assert new_state.num_full_ds_evals == 2
       assert new_state.total_num_evals == state.total_num_evals + 2
+      assert new_state.num_metric_calls_by_discovery == [0, state.total_num_evals]
     end
 
     test "updates objective frontiers and best outputs for new programs" do

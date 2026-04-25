@@ -1,3 +1,23 @@
+defmodule GEPA.CandidateProposal.SubsampleEvaluation do
+  @moduledoc """
+  Rich evaluation data captured for a proposal minibatch.
+
+  This mirrors upstream's `SubsampleEvaluation`: scores remain the compact
+  acceptance surface, while outputs, objective scores, and trajectories are
+  retained for callbacks, tracking, and custom acceptance logic.
+  """
+
+  @type t :: %__MODULE__{
+          scores: [float()],
+          outputs: [term()],
+          objective_scores: [%{String.t() => float()}] | nil,
+          trajectories: [term()] | nil
+        }
+
+  @enforce_keys [:scores]
+  defstruct [:scores, outputs: [], objective_scores: nil, trajectories: nil]
+end
+
 defmodule GEPA.CandidateProposal do
   @moduledoc """
   A proposed new candidate program with metadata for acceptance testing.
@@ -13,10 +33,13 @@ defmodule GEPA.CandidateProposal do
   - `subsample_indices`: Data IDs used for subsample evaluation
   - `subsample_scores_before`: Parent scores on subsample
   - `subsample_scores_after`: New candidate scores on subsample
+  - `eval_before`: Rich parent minibatch evaluation data
+  - `eval_after`: Rich proposed-candidate minibatch evaluation data
   - `tag`: Proposal type identifier ("reflective_mutation", "merge", etc.)
   - `metadata`: Additional proposal-specific data
   """
 
+  alias GEPA.CandidateProposal.SubsampleEvaluation
   alias GEPA.Strategies.Acceptance
   alias GEPA.Types
 
@@ -26,6 +49,8 @@ defmodule GEPA.CandidateProposal do
           subsample_indices: [Types.data_id()] | nil,
           subsample_scores_before: [float()] | nil,
           subsample_scores_after: [float()] | nil,
+          eval_before: SubsampleEvaluation.t() | nil,
+          eval_after: SubsampleEvaluation.t() | nil,
           tag: String.t(),
           metadata: map()
         }
@@ -38,6 +63,8 @@ defmodule GEPA.CandidateProposal do
     subsample_indices: nil,
     subsample_scores_before: nil,
     subsample_scores_after: nil,
+    eval_before: nil,
+    eval_after: nil,
     metadata: %{}
   ]
 

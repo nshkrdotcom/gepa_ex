@@ -4,6 +4,11 @@ defmodule GEPA.OptimizeTest do
   alias GEPA.Adapters.Basic
   alias GEPA.LLM.Mock
   alias GEPA.Result
+  alias GEPA.StopCondition.MaxCalls
+  alias GEPA.Strategies.BatchSampler.EpochShuffled
+  alias GEPA.Strategies.CandidateSelector.{CurrentBest, EpsilonGreedy, Pareto, TopKPareto}
+  alias GEPA.Strategies.ComponentSelector.RoundRobin
+  alias GEPA.Strategies.EvaluationPolicy.Full
 
   defmodule EqualScoreAdapter do
     @behaviour GEPA.Adapter
@@ -12,6 +17,7 @@ defmodule GEPA.OptimizeTest do
 
     def new, do: %__MODULE__{}
 
+    @impl true
     def evaluate(_adapter, batch, _candidate, capture_traces) do
       trajectories =
         if capture_traces do
@@ -28,6 +34,7 @@ defmodule GEPA.OptimizeTest do
        }}
     end
 
+    @impl true
     def make_reflective_dataset(_adapter, candidate, eval_batch, components) do
       dataset =
         for component <- components, into: %{} do
@@ -45,6 +52,20 @@ defmodule GEPA.OptimizeTest do
 
       {:ok, dataset}
     end
+
+    @impl true
+    def propose_new_texts(_adapter, candidate, _reflective_dataset, components) do
+      {:ok, Map.new(components, &{&1, candidate[&1] <> " updated"})}
+    end
+  end
+
+  defmodule ImmediateStop do
+    @behaviour GEPA.StopCondition
+
+    defstruct []
+
+    @impl true
+    def should_stop?(%__MODULE__{}, _state), do: true
   end
 
   describe "GEPA.optimize/1 with reflection_llm" do
@@ -127,30 +148,58 @@ defmodule GEPA.OptimizeTest do
       end
     end
 
-    test "falls back to simple improvement without reflection_llm" do
-      {:ok, result} =
+    test "raises without reflection_llm, custom proposer, or adapter proposer" do
+      assert_raise RuntimeError, ~r/missing_proposal_source/, fn ->
         GEPA.optimize(
           seed_candidate: %{"instruction" => "Original"},
           trainset: [%{input: "Q", answer: "A"}],
           valset: [%{input: "Q2", answer: "A2"}],
           adapter: Basic.new(),
-          max_metric_calls: 10
+          max_metric_calls: 10,
+          skip_perfect_score: false
         )
-
-      assert %GEPA.Result{} = result
+      end
     end
   end
 
   describe "GEPA.optimize/1 option validation" do
     test "raises when seed_candidate not provided" do
-      assert_raise ArgumentError, ~r/must provide :seed_candidate/, fn ->
-        GEPA.optimize(
-          trainset: [%{input: "Q", answer: "A"}],
-          valset: [%{input: "Q2", answer: "A2"}],
-          adapter: Basic.new(),
-          max_metric_calls: 10
-        )
-      end
+      assert_raise ArgumentError,
+                   ~r/seed_candidate must contain at least one component text/,
+                   fn ->
+                     GEPA.optimize(
+                       trainset: [%{input: "Q", answer: "A"}],
+                       valset: [%{input: "Q2", answer: "A2"}],
+                       adapter: Basic.new(),
+                       max_metric_calls: 10
+                     )
+                   end
+    end
+
+    test "raises when seed_candidate is nil" do
+      assert_raise ArgumentError,
+                   ~r/seed_candidate must contain at least one component text/,
+                   fn ->
+                     GEPA.optimize(
+                       seed_candidate: nil,
+                       trainset: [%{input: "Q", answer: "A"}],
+                       adapter: Basic.new(),
+                       stop_conditions: [%ImmediateStop{}]
+                     )
+                   end
+    end
+
+    test "raises when seed_candidate is empty" do
+      assert_raise ArgumentError,
+                   ~r/seed_candidate must contain at least one component text/,
+                   fn ->
+                     GEPA.optimize(
+                       seed_candidate: %{},
+                       trainset: [%{input: "Q", answer: "A"}],
+                       adapter: Basic.new(),
+                       stop_conditions: [%ImmediateStop{}]
+                     )
+                   end
     end
 
     test "raises when adapter not provided" do
@@ -164,8 +213,8 @@ defmodule GEPA.OptimizeTest do
       end
     end
 
-    test "raises when max_metric_calls not provided" do
-      assert_raise ArgumentError, ~r/must provide :max_metric_calls/, fn ->
+    test "raises when no stop condition is provided" do
+      assert_raise ArgumentError, ~r/must provide at least one stop condition/, fn ->
         GEPA.optimize(
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q", answer: "A"}],
@@ -173,6 +222,173 @@ defmodule GEPA.OptimizeTest do
           adapter: Basic.new()
         )
       end
+    end
+
+    test "defaults valset to trainset when omitted" do
+      test_pid = self()
+
+      callback = fn
+        :optimization_start, %{valset_size: valset_size} ->
+          send(test_pid, {:valset_size, valset_size})
+
+        _event, _payload ->
+          :ok
+      end
+
+      {:ok, result} =
+        GEPA.optimize(
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q1", answer: "A1"}, %{input: "Q2", answer: "A2"}],
+          adapter: Basic.new(),
+          stop_conditions: [%ImmediateStop{}],
+          callbacks: [callback]
+        )
+
+      assert %GEPA.Result{} = result
+      assert_receive {:valset_size, 2}
+    end
+
+    test "accepts custom stop conditions without max_metric_calls" do
+      {:ok, result} =
+        GEPA.optimize(
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q", answer: "A"}],
+          adapter: Basic.new(),
+          stop_conditions: [%ImmediateStop{}]
+        )
+
+      assert %GEPA.Result{} = result
+      assert length(result.candidates) == 1
+    end
+
+    test "combines custom stop conditions with max_metric_calls" do
+      test_pid = self()
+
+      callback = fn
+        :optimization_start, %{config: config} ->
+          send(test_pid, {:stop_conditions, config.stop_conditions})
+
+        _event, _payload ->
+          :ok
+      end
+
+      {:ok, _result} =
+        GEPA.optimize(
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q", answer: "A"}],
+          adapter: Basic.new(),
+          stop_conditions: [%ImmediateStop{}],
+          max_metric_calls: 10,
+          callbacks: [callback]
+        )
+
+      assert_receive {:stop_conditions, stop_conditions}
+      assert Enum.any?(stop_conditions, &match?(%ImmediateStop{}, &1))
+      assert Enum.any?(stop_conditions, &match?(%MaxCalls{max_calls: 10}, &1))
+    end
+
+    test "adds run_dir file stopper automatically" do
+      test_pid = self()
+
+      callback = fn
+        :optimization_start, %{config: config} ->
+          send(test_pid, {:stop_conditions, config.stop_conditions})
+
+        _event, _payload ->
+          :ok
+      end
+
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "gepa-optimize-test-#{System.unique_integer([:positive])}")
+
+      on_exit(fn -> File.rm_rf(tmp_dir) end)
+
+      {:ok, _result} =
+        GEPA.optimize(
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q", answer: "A"}],
+          adapter: Basic.new(),
+          stop_conditions: [%ImmediateStop{}],
+          run_dir: tmp_dir,
+          callbacks: [callback]
+        )
+
+      assert_receive {:stop_conditions, stop_conditions}
+
+      assert Enum.any?(stop_conditions, fn
+               condition ->
+                 Map.get(condition, :__struct__) == GEPA.StopCondition.FileStopper and
+                   Map.get(condition, :path) == Path.join(tmp_dir, "gepa.stop")
+             end)
+    end
+  end
+
+  describe "GEPA.optimize/1 public strategy options" do
+    test "normalizes candidate selector aliases" do
+      assert_config(candidate_selection_strategy: :pareto, candidate_selector: Pareto)
+      assert_config(candidate_selection_strategy: "pareto", candidate_selector: Pareto)
+      assert_config(candidate_selection_strategy: :current_best, candidate_selector: CurrentBest)
+
+      assert_config(
+        candidate_selection_strategy: :epsilon_greedy,
+        candidate_selector: %{__struct__: EpsilonGreedy}
+      )
+
+      assert_config(
+        candidate_selection_strategy: :top_k_pareto,
+        candidate_selector: %{__struct__: TopKPareto, k: 5}
+      )
+    end
+
+    test "normalizes batch sampler, module selector, validation policy, and acceptance criterion" do
+      assert_config(
+        batch_sampler: :epoch_shuffled,
+        reflection_minibatch_size: 7,
+        module_selector: :round_robin,
+        val_evaluation_policy: :full_eval,
+        acceptance_criterion: :strict_improvement,
+        assert: fn config ->
+          assert %EpochShuffled{minibatch_size: 7} = config.batch_sampler
+          assert config.module_selector == RoundRobin
+          assert config.val_evaluation_policy == Full
+          assert config.acceptance_criterion == GEPA.Strategies.Acceptance.StrictImprovement
+        end
+      )
+    end
+
+    test "builds evaluation cache and passes exception policy" do
+      assert_config(
+        cache_evaluation: true,
+        raise_on_exception: false,
+        assert: fn config ->
+          assert %GEPA.EvaluationCache{} = config.evaluation_cache
+          assert config.raise_on_exception == false
+        end
+      )
+    end
+
+    test "passes max_iterations and num_parallel_proposals to engine config" do
+      assert_config(
+        max_iterations: 12,
+        num_parallel_proposals: 3,
+        assert: fn config ->
+          assert config.max_iterations == 12
+          assert config.num_parallel_proposals == 3
+        end
+      )
+    end
+
+    test "builds merge proposer from public options" do
+      assert_config(
+        use_merge: true,
+        max_merge_invocations: 9,
+        merge_val_overlap_floor: 2,
+        assert: fn config ->
+          assert %GEPA.Proposer.Merge{} = config.merge_proposer
+          assert config.merge_proposer.max_merge_invocations == 9
+          assert config.merge_proposer.val_overlap_floor == 2
+        end
+      )
     end
   end
 
@@ -193,7 +409,7 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"instruction" => "Answer exactly."},
           trainset: [%{input: "What is 2+2?", answer: "4"}],
           valset: [%{input: "What is 5+5?", answer: "10"}],
-          max_metric_calls: 2,
+          max_metric_calls: 1,
           task_lm: task_lm
         )
 
@@ -203,6 +419,22 @@ defmodule GEPA.OptimizeTest do
   end
 
   describe "GEPA.optimize/1 acceptance criteria" do
+    test "max_iterations limits the safety iteration cap" do
+      {:ok, result} =
+        GEPA.optimize(
+          seed_candidate: %{"instruction" => "Original"},
+          trainset: [%{input: "Q", answer: "A"}],
+          valset: [%{input: "Q2", answer: "A2"}],
+          adapter: EqualScoreAdapter.new(),
+          max_metric_calls: 100,
+          max_iterations: 0,
+          skip_perfect_score: false
+        )
+
+      assert result.i == -1
+      assert length(result.candidates) == 1
+    end
+
     test "strict improvement rejects equal-score proposals by default" do
       {:ok, result} =
         GEPA.optimize(
@@ -261,6 +493,47 @@ defmodule GEPA.OptimizeTest do
 
       assert_receive {:gepa_callback, :optimization_end, %{total_metric_calls: calls}}
                      when calls > 0
+    end
+  end
+
+  defp assert_config(opts) do
+    assertion = Keyword.get(opts, :assert)
+    expected_selector = Keyword.get(opts, :candidate_selector)
+    opts = Keyword.delete(opts, :assert) |> Keyword.delete(:candidate_selector)
+    test_pid = self()
+
+    callback = fn
+      :optimization_start, %{config: config} ->
+        send(test_pid, {:config, config})
+
+      _event, _payload ->
+        :ok
+    end
+
+    {:ok, _result} =
+      GEPA.optimize(
+        [
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q", answer: "A"}],
+          adapter: Basic.new(),
+          stop_conditions: [%ImmediateStop{}],
+          callbacks: [callback]
+        ] ++ opts
+      )
+
+    assert_receive {:config, config}
+
+    if expected_selector do
+      if is_map(expected_selector) do
+        assert Map.take(config.candidate_selector, Map.keys(expected_selector)) ==
+                 expected_selector
+      else
+        assert config.candidate_selector == expected_selector
+      end
+    end
+
+    if assertion do
+      assertion.(config)
     end
   end
 end

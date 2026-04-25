@@ -104,6 +104,14 @@ defmodule GepaEx.MixProject do
       groups_for_modules: [
         "Public API": [
           GEPA,
+          GEPA.OptimizeAnything,
+          GEPA.OptimizeAnything.Config,
+          GEPA.OptimizeAnything.EngineConfig,
+          GEPA.OptimizeAnything.ReflectionConfig,
+          GEPA.OptimizeAnything.MergeConfig,
+          GEPA.OptimizeAnything.RefinerConfig,
+          GEPA.OptimizeAnything.TrackingConfig,
+          GEPA.OptimizeAnything.OptimizationState,
           GEPA.Result,
           GEPA.DataLoader,
           GEPA.Adapter
@@ -117,12 +125,17 @@ defmodule GepaEx.MixProject do
           GEPA.Proposer.Reflective,
           GEPA.CandidateProposal,
           GEPA.EvaluationBatch,
-          GEPA.EvaluationCache
+          GEPA.EvaluationCache,
+          GEPA.OptimizeAnything.Adapter,
+          GEPA.OptimizeAnything.EvaluatorWrapper,
+          GEPA.OptimizeAnything.LogContext
         ],
         Strategies: [
           GEPA.Strategies.CandidateSelector,
           GEPA.Strategies.CandidateSelector.Pareto,
           GEPA.Strategies.CandidateSelector.CurrentBest,
+          GEPA.Strategies.CandidateSelector.TopKPareto,
+          GEPA.Strategies.CandidateSelector.EpsilonGreedy,
           GEPA.Strategies.ComponentSelector,
           GEPA.Strategies.ComponentSelector.RoundRobin,
           GEPA.Strategies.ComponentSelector.All,
@@ -138,7 +151,13 @@ defmodule GepaEx.MixProject do
           GEPA.StopCondition.Composite,
           GEPA.StopCondition.Timeout,
           GEPA.StopCondition.NoImprovement,
-          GEPA.StopCondition.MaxCalls
+          GEPA.StopCondition.MaxCalls,
+          GEPA.StopCondition.FileStopper,
+          GEPA.StopCondition.ScoreThreshold,
+          GEPA.StopCondition.MaxTrackedCandidates,
+          GEPA.StopCondition.MaxCandidateProposals,
+          GEPA.StopCondition.MaxReflectionCost,
+          GEPA.StopCondition.SignalStopper
         ],
         "LLM & Adapters": [
           GEPA.LLM,
@@ -157,6 +176,10 @@ defmodule GepaEx.MixProject do
         Utilities: [
           GEPA.Utils,
           GEPA.Utils.Pareto,
+          GEPA.CodeExecution,
+          GEPA.Tracking,
+          GEPA.Tracking.NoOp,
+          GEPA.Tracking.InMemory,
           GEPA.Types
         ],
         Application: [

@@ -11,9 +11,8 @@ defmodule GEPA.Proposer.InstructionProposalTest do
 
       assert proposal.llm == llm
       assert proposal.template != nil
-      assert String.contains?(proposal.template, "{component_name}")
-      assert String.contains?(proposal.template, "{current_instruction}")
-      assert String.contains?(proposal.template, "{reflective_dataset}")
+      assert String.contains?(proposal.template, "<curr_param>")
+      assert String.contains?(proposal.template, "<side_info>")
     end
 
     test "accepts custom template with required placeholders" do
@@ -117,10 +116,11 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       assert result == "trimmed response"
     end
 
-    test "substitutes component_name in template" do
+    test "default template does not require component name" do
       captured_prompt =
         capture_prompt(fn prompt ->
-          assert String.contains?(prompt, "my_component")
+          refute String.contains?(prompt, "my_component")
+          assert String.contains?(prompt, "instruction")
           "response"
         end)
 
@@ -436,9 +436,8 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       template = InstructionProposal.default_template()
 
       assert is_binary(template)
-      assert String.contains?(template, "{component_name}")
-      assert String.contains?(template, "{current_instruction}")
-      assert String.contains?(template, "{reflective_dataset}")
+      assert String.contains?(template, "<curr_param>")
+      assert String.contains?(template, "<side_info>")
     end
   end
 

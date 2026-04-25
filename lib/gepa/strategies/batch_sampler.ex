@@ -104,15 +104,21 @@ defmodule GEPA.Strategies.BatchSampler.EpochShuffled do
     :seed,
     :shuffled_ids,
     :current_position,
-    :epoch
+    :epoch,
+    :id_freqs,
+    :last_trainset_size,
+    :rng_state
   ]
 
   @type t :: %__MODULE__{
           minibatch_size: pos_integer(),
           seed: integer(),
-          shuffled_ids: [term()] | nil,
+          shuffled_ids: [term()],
           current_position: non_neg_integer(),
-          epoch: non_neg_integer()
+          epoch: integer(),
+          id_freqs: %{term() => pos_integer()},
+          last_trainset_size: non_neg_integer(),
+          rng_state: :rand.state()
         }
 
   @doc """
@@ -133,47 +139,105 @@ defmodule GEPA.Strategies.BatchSampler.EpochShuffled do
     %__MODULE__{
       minibatch_size: Keyword.get(opts, :minibatch_size, 3),
       seed: Keyword.get(opts, :seed, 0),
-      shuffled_ids: nil,
+      shuffled_ids: [],
       current_position: 0,
-      epoch: 0
+      epoch: -1,
+      id_freqs: %{},
+      last_trainset_size: 0,
+      rng_state: seed_rng(Keyword.get(opts, :seed, 0))
     }
   end
 
   @impl true
   @spec next_batch(t(), GEPA.DataLoader.t(), GEPA.State.t()) ::
           {[term()], t()}
-  def next_batch(sampler, loader, _gepa_state) do
+  def next_batch(sampler, loader, gepa_state) do
     all_ids = GEPA.DataLoader.all_ids(loader)
+    trainset_size = length(all_ids)
 
-    # Initialize or reshuffle if we've gone through all data
+    if trainset_size == 0 do
+      raise ArgumentError, "Cannot sample a minibatch from an empty loader."
+    end
+
+    raw_base_idx = base_index(sampler, gepa_state)
+    curr_epoch = current_epoch(sampler, raw_base_idx)
+
+    # Initialize, refresh on trainset size changes, or reshuffle at epoch boundaries.
     sampler =
-      if is_nil(sampler.shuffled_ids) or sampler.current_position >= length(all_ids) do
-        start_new_epoch(sampler, all_ids)
+      if sampler.shuffled_ids == [] or trainset_size != sampler.last_trainset_size or
+           curr_epoch > sampler.epoch do
+        start_new_epoch(%{sampler | epoch: curr_epoch}, all_ids)
       else
         sampler
       end
 
-    # Get next batch
+    base_idx = rem(raw_base_idx, length(sampler.shuffled_ids))
+
     batch_ids =
       sampler.shuffled_ids
-      |> Enum.drop(sampler.current_position)
+      |> Enum.drop(base_idx)
       |> Enum.take(sampler.minibatch_size)
 
-    # Update position
-    new_sampler = %{sampler | current_position: sampler.current_position + sampler.minibatch_size}
+    new_sampler = %{sampler | current_position: raw_base_idx + sampler.minibatch_size}
 
     {batch_ids, new_sampler}
   end
 
   defp start_new_epoch(sampler, all_ids) do
-    # Create a seeded random generator for this epoch
-    # Use different seed for each epoch to get different shuffles
-    epoch_seed = sampler.seed + sampler.epoch
+    {shuffled, rng_state} = shuffle(all_ids, sampler.rng_state)
+    id_freqs = Enum.frequencies(shuffled)
+    {padded, id_freqs} = pad_to_minibatch(shuffled, id_freqs, sampler.minibatch_size)
 
-    # Set the random seed and shuffle
-    _ = :rand.seed(:exsss, {epoch_seed, epoch_seed * 2, epoch_seed * 3})
-    shuffled = Enum.shuffle(all_ids)
+    %{
+      sampler
+      | shuffled_ids: padded,
+        id_freqs: id_freqs,
+        current_position: 0,
+        last_trainset_size: length(all_ids),
+        rng_state: rng_state
+    }
+  end
 
-    %{sampler | shuffled_ids: shuffled, current_position: 0, epoch: sampler.epoch + 1}
+  defp base_index(%__MODULE__{} = sampler, nil), do: sampler.current_position
+  defp base_index(%__MODULE__{} = sampler, %{i: nil}), do: sampler.current_position
+
+  defp base_index(%__MODULE__{} = sampler, %{i: iteration}),
+    do: iteration * sampler.minibatch_size
+
+  defp current_epoch(%__MODULE__{epoch: -1}, _base_idx), do: 0
+
+  defp current_epoch(%__MODULE__{shuffled_ids: shuffled_ids} = sampler, base_idx) do
+    div(base_idx, max(length(shuffled_ids), sampler.minibatch_size))
+  end
+
+  defp seed_rng(seed) do
+    :rand.seed_s(:exsss, {seed + 1, seed * 2 + 3, seed * 3 + 5})
+  end
+
+  defp shuffle(ids, rng_state) do
+    {keyed, rng_state} =
+      Enum.map_reduce(ids, rng_state, fn id, state ->
+        {key, state} = :rand.uniform_s(state)
+        {{key, id}, state}
+      end)
+
+    shuffled = keyed |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
+    {shuffled, rng_state}
+  end
+
+  defp pad_to_minibatch(shuffled, id_freqs, minibatch_size) do
+    remainder = rem(length(shuffled), minibatch_size)
+    num_to_pad = if remainder == 0, do: 0, else: minibatch_size - remainder
+
+    Enum.reduce(1..num_to_pad//1, {shuffled, id_freqs}, fn _, {ids, freqs} ->
+      selected_id = least_frequent_id(freqs, ids)
+      {ids ++ [selected_id], Map.update!(freqs, selected_id, &(&1 + 1))}
+    end)
+  end
+
+  defp least_frequent_id(freqs, ids) do
+    ids
+    |> Enum.uniq()
+    |> Enum.min_by(fn id -> {Map.fetch!(freqs, id), Enum.find_index(ids, &(&1 == id))} end)
   end
 end

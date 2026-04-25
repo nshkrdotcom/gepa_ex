@@ -35,7 +35,7 @@ defmodule GEPA.State do
           named_predictor_id_to_update_next_for_program_candidate: [non_neg_integer()],
 
           # Iteration tracking
-          i: non_neg_integer(),
+          i: integer(),
           num_full_ds_evals: non_neg_integer(),
           total_num_evals: non_neg_integer(),
           num_metric_calls_by_discovery: [non_neg_integer()],
@@ -71,15 +71,15 @@ defmodule GEPA.State do
     pareto_front_cartesian: %{},
     program_at_pareto_front_cartesian: %{},
     named_predictor_id_to_update_next_for_program_candidate: [],
-    i: 0,
-    num_full_ds_evals: 0,
+    i: -1,
+    num_full_ds_evals: 1,
     total_num_evals: 0,
-    num_metric_calls_by_discovery: [],
+    num_metric_calls_by_discovery: [0],
     full_program_trace: [],
     best_outputs_valset: nil,
     evaluation_cache: nil,
     adapter_state: %{},
-    validation_schema_version: 3
+    validation_schema_version: 5
   ]
 
   @doc """
@@ -148,15 +148,15 @@ defmodule GEPA.State do
       program_at_pareto_front_cartesian: cartesian_programs,
       list_of_named_predictors: component_names,
       named_predictor_id_to_update_next_for_program_candidate: [0],
-      i: 0,
-      num_full_ds_evals: 0,
+      i: -1,
+      num_full_ds_evals: 1,
       total_num_evals: eval_batch.num_metric_calls || length(valset_ids),
-      num_metric_calls_by_discovery: [],
+      num_metric_calls_by_discovery: [0],
       full_program_trace: [],
       best_outputs_valset: best_outputs,
       evaluation_cache: Keyword.get(opts, :evaluation_cache),
       adapter_state: Keyword.get(opts, :adapter_state, %{}),
-      validation_schema_version: 3
+      validation_schema_version: 5
     }
   end
 
@@ -231,6 +231,12 @@ defmodule GEPA.State do
         new_idx
       )
 
+    next_component_pointer =
+      parent_program_ids
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&Enum.at(state.named_predictor_id_to_update_next_for_program_candidate, &1, 0))
+      |> Enum.max(fn -> 0 end)
+
     new_state = %{
       state
       | program_candidates: state.program_candidates ++ [new_candidate],
@@ -246,11 +252,12 @@ defmodule GEPA.State do
         program_at_pareto_front_cartesian: cartesian_programs,
         best_outputs_valset: best_outputs,
         named_predictor_id_to_update_next_for_program_candidate:
-          state.named_predictor_id_to_update_next_for_program_candidate ++ [0],
+          state.named_predictor_id_to_update_next_for_program_candidate ++
+            [next_component_pointer],
         num_full_ds_evals: state.num_full_ds_evals + 1,
         total_num_evals: state.total_num_evals + metric_calls,
         num_metric_calls_by_discovery:
-          state.num_metric_calls_by_discovery ++ [state.total_num_evals + metric_calls]
+          state.num_metric_calls_by_discovery ++ [state.total_num_evals]
     }
 
     {new_state, new_idx}

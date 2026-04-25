@@ -19,7 +19,8 @@ defmodule GEPA.Engine do
     EvaluationBatch,
     EvaluationCache,
     State,
-    Telemetry
+    Telemetry,
+    Tracking
   }
 
   alias GEPA.Proposer.{Merge, Reflective}
@@ -39,6 +40,7 @@ defmodule GEPA.Engine do
   def run(config) do
     run_start_ms = System.monotonic_time(:millisecond)
     Telemetry.emit_run_start(config)
+    Tracking.start(config[:tracker])
 
     # Start progress display if enabled
     progress = maybe_start_progress(config)
@@ -66,6 +68,12 @@ defmodule GEPA.Engine do
 
     Telemetry.emit_run_stop(final_state, run_start_ms)
 
+    Tracking.log_summary(config[:tracker], %{
+      total_iterations: final_state.i,
+      total_metric_calls: final_state.total_num_evals,
+      best_score: best_score(final_state)
+    })
+
     # Finish progress display
     maybe_finish_progress(progress, final_state)
 
@@ -75,6 +83,8 @@ defmodule GEPA.Engine do
       total_metric_calls: final_state.total_num_evals,
       final_state: final_state
     })
+
+    Tracking.finish(config[:tracker])
 
     {:ok, final_state}
   end
@@ -95,9 +105,10 @@ defmodule GEPA.Engine do
       prev_best = best_score(state)
       iter_start_ms = System.monotonic_time(:millisecond)
 
-      # Increment iteration
+      # Increment internal iteration. Public callbacks/logs are one-based to
+      # match upstream while state.i remains zero-based after the first loop.
       state = %{state | i: state.i + 1}
-      iteration = state.i
+      iteration = state.i + 1
       Logger.debug("Starting iteration #{iteration}")
 
       Callbacks.notify(config[:callbacks], :iteration_start, %{
@@ -106,12 +117,20 @@ defmodule GEPA.Engine do
         trainset: config.trainset
       })
 
+      Tracking.log_metrics(
+        config[:tracker],
+        %{iteration: iteration, total_metric_calls: state.total_num_evals},
+        step: iteration
+      )
+
       # Try merge proposer first (if configured and conditions met)
-      {proposal, state, config} =
+      {proposal, state, config, proposal_evals} =
         case Map.fetch(config, :merge_proposer) do
           {:ok, nil} ->
-            {reflective, new_state, new_config} = try_reflective_proposal(state, config)
-            {reflective, new_state, new_config}
+            {reflective, new_state, new_config, metric_calls} =
+              try_reflective_proposal(state, config)
+
+            {reflective, new_state, new_config, metric_calls}
 
           {:ok, merge_proposer} ->
             {merge_proposal, updated_proposer} =
@@ -120,15 +139,19 @@ defmodule GEPA.Engine do
             merge_config = %{config | merge_proposer: updated_proposer}
 
             if merge_proposal do
-              {merge_proposal, state, merge_config}
+              {merge_proposal, state, merge_config, nil}
             else
-              {reflective, new_state, new_config} = try_reflective_proposal(state, merge_config)
-              {reflective, new_state, new_config}
+              {reflective, new_state, new_config, metric_calls} =
+                try_reflective_proposal(state, merge_config)
+
+              {reflective, new_state, new_config, metric_calls}
             end
 
           :error ->
-            {reflective, new_state, new_config} = try_reflective_proposal(state, config)
-            {reflective, new_state, new_config}
+            {reflective, new_state, new_config, metric_calls} =
+              try_reflective_proposal(state, config)
+
+            {reflective, new_state, new_config, metric_calls}
         end
 
       selected_candidate = proposal && List.first(proposal.parent_program_ids)
@@ -142,12 +165,11 @@ defmodule GEPA.Engine do
       {result_tag, new_state, new_config, accepted?} =
         case proposal do
           %CandidateProposal{} ->
-            Logger.debug("Proposal generated for iteration #{state.i} (#{proposal.tag})")
+            Logger.debug("Proposal generated for iteration #{iteration} (#{proposal.tag})")
             Telemetry.emit_proposal_generated(proposal, iteration)
 
             # Update eval counter
-            num_subsample_evals =
-              length(proposal.subsample_scores_before) + length(proposal.subsample_scores_after)
+            num_subsample_evals = proposal_evals || proposal_metric_calls(proposal)
 
             state = %{state | total_num_evals: state.total_num_evals + num_subsample_evals}
 
@@ -156,7 +178,7 @@ defmodule GEPA.Engine do
                  Map.get(config, :acceptance_criterion, :strict_improvement),
                  state
                ) do
-              Logger.info("Accepting #{proposal.tag} proposal at iteration #{state.i}")
+              Logger.info("Accepting #{proposal.tag} proposal at iteration #{iteration}")
               new_state = accept_proposal(state, proposal, config, iteration)
               new_candidate_idx = length(new_state.program_candidates) - 1
 
@@ -177,6 +199,16 @@ defmodule GEPA.Engine do
                 proposal.parent_program_ids
               )
 
+              Tracking.log_metrics(
+                config[:tracker],
+                %{
+                  proposal_accepted: 1,
+                  subsample_delta: subsample_after_sum - subsample_before_sum,
+                  total_metric_calls: new_state.total_num_evals
+                },
+                step: iteration
+              )
+
               new_config =
                 case Map.fetch(config, :merge_proposer) do
                   {:ok, nil} ->
@@ -193,7 +225,7 @@ defmodule GEPA.Engine do
 
               {:cont, new_state, new_config, true}
             else
-              Logger.debug("Rejecting proposal at iteration #{state.i}")
+              Logger.debug("Rejecting proposal at iteration #{iteration}")
 
               Callbacks.notify(config[:callbacks], :candidate_rejected, %{
                 iteration: iteration,
@@ -211,12 +243,22 @@ defmodule GEPA.Engine do
                 proposal.parent_program_ids
               )
 
+              Tracking.log_metrics(
+                config[:tracker],
+                %{
+                  proposal_accepted: 0,
+                  subsample_delta: subsample_after_sum - subsample_before_sum,
+                  total_metric_calls: state.total_num_evals
+                },
+                step: iteration
+              )
+
               {:cont, state, config, false}
             end
 
           nil ->
-            Logger.debug("No proposal generated at iteration #{state.i}")
-            state = %{state | total_num_evals: state.total_num_evals + 1}
+            Logger.debug("No proposal generated at iteration #{iteration}")
+            state = add_metric_calls(state, proposal_evals || 0)
 
             Callbacks.notify(config[:callbacks], :candidate_rejected, %{
               iteration: iteration,
@@ -236,6 +278,8 @@ defmodule GEPA.Engine do
 
             {:cont, state, config, false}
         end
+
+      new_config = update_stop_conditions(new_config, new_state)
 
       iter_duration_ms = System.monotonic_time(:millisecond) - iter_start_ms
 
@@ -266,19 +310,37 @@ defmodule GEPA.Engine do
     # Use configured reflective proposer or create one
     proposer = config[:reflective_proposer] || create_proposer(config)
 
-    case Reflective.propose(proposer, state) do
-      {:ok, proposal, selector} ->
-        new_config = put_candidate_selector(config, selector)
-        {proposal, state, new_config}
+    try do
+      case Reflective.propose(proposer, state) do
+        {:ok, proposal, updated_proposer, updated_state} ->
+          new_config = put_reflective_proposer(config, updated_proposer)
+          {proposal, updated_state, new_config, nil}
 
-      {:none, selector} ->
-        new_config = put_candidate_selector(config, selector)
-        {nil, state, new_config}
+        {:none, updated_proposer, updated_state, metadata} ->
+          new_config = put_reflective_proposer(config, updated_proposer)
+          {nil, updated_state, new_config, Map.get(metadata, :num_metric_calls, 0)}
 
-      {:error, reason, selector} ->
-        Logger.warning("Reflective proposal failed: #{inspect(reason)}")
-        new_config = put_candidate_selector(config, selector)
-        {nil, state, new_config}
+        {:error, reason, updated_proposer, updated_state} ->
+          handle_reflective_error(reason, updated_proposer, updated_state, config)
+      end
+    rescue
+      exception ->
+        if Map.get(config, :raise_on_exception, true) do
+          reraise exception, __STACKTRACE__
+        else
+          Logger.warning("Reflective proposal raised: #{Exception.message(exception)}")
+          {nil, state, config, 0}
+        end
+    end
+  end
+
+  defp handle_reflective_error(reason, proposer, state, config) do
+    if Map.get(config, :raise_on_exception, true) do
+      raise "Reflective proposal failed: #{inspect(reason)}"
+    else
+      Logger.warning("Reflective proposal failed: #{inspect(reason)}")
+      new_config = put_reflective_proposer(config, proposer)
+      {nil, state, new_config, 0}
     end
   end
 
@@ -291,7 +353,10 @@ defmodule GEPA.Engine do
         case load_state(config.run_dir) do
           {:ok, state} ->
             Logger.info("Loaded existing state from #{config.run_dir}")
+
             state
+            |> validate_loaded_state!(config)
+            |> sync_loaded_cache_setting(config)
 
           {:error, _} ->
             create_initial_state(config)
@@ -343,9 +408,11 @@ defmodule GEPA.Engine do
     )
   end
 
-  defp optimization_loop(state, config, progress, max_iters \\ 1000) do
+  defp optimization_loop(state, config, progress) do
+    max_iters = Map.get(config, :max_iterations, 1000)
+
     # Safety guard against infinite loops
-    if state.i >= max_iters do
+    if state.i + 1 >= max_iters do
       Logger.warning("Reached max iterations (#{max_iters}), stopping")
       state
     else
@@ -361,7 +428,7 @@ defmodule GEPA.Engine do
             |> save_state(config.run_dir)
           end
 
-          optimization_loop(new_state, new_config, progress, max_iters)
+          optimization_loop(new_state, new_config, progress)
 
         {:stop, final_state} ->
           Logger.info("Optimization stopped at iteration #{final_state.i}")
@@ -371,14 +438,57 @@ defmodule GEPA.Engine do
   end
 
   defp should_stop?(state, stop_conditions) do
-    Enum.any?(stop_conditions, fn condition ->
-      condition.__struct__.should_stop?(condition, state)
+    Enum.any?(stop_conditions, &GEPA.StopCondition.should_stop?(&1, state))
+  end
+
+  defp update_stop_conditions(config, state) do
+    Map.update(config, :stop_conditions, [], fn stop_conditions ->
+      Enum.map(stop_conditions, &GEPA.StopCondition.update(&1, state))
     end)
   end
 
+  defp proposal_metric_calls(%CandidateProposal{metadata: metadata} = proposal) do
+    Map.get(metadata, :num_metric_calls) ||
+      Map.get(metadata, "num_metric_calls") ||
+      length(proposal.subsample_scores_before || []) +
+        length(proposal.subsample_scores_after || [])
+  end
+
+  defp add_metric_calls(state, 0), do: state
+
+  defp add_metric_calls(state, calls) when is_integer(calls) and calls > 0 do
+    %{state | total_num_evals: state.total_num_evals + calls}
+  end
+
+  defp validate_loaded_state!(state, config) do
+    requested_frontier_type = Map.get(config, :frontier_type, :instance)
+    loaded_frontier_type = Map.get(state, :frontier_type, :instance)
+
+    if loaded_frontier_type != requested_frontier_type do
+      raise ArgumentError,
+            "Frontier type mismatch: requested #{inspect(requested_frontier_type)} but loaded state has #{inspect(loaded_frontier_type)}"
+    end
+
+    state
+  end
+
+  defp sync_loaded_cache_setting(state, config) do
+    case Map.get(config, :evaluation_cache) do
+      nil ->
+        %{state | evaluation_cache: nil}
+
+      evaluation_cache ->
+        if state.evaluation_cache do
+          state
+        else
+          %{state | evaluation_cache: evaluation_cache}
+        end
+    end
+  end
+
   defp accept_proposal(state, proposal, config, iteration) do
-    # Evaluate on full validation set
-    valset_ids = DataLoader.all_ids(config.valset)
+    # Evaluate on the validation IDs selected by the configured policy.
+    valset_ids = validation_eval_ids(config, state, length(state.program_candidates))
     adapter = config.adapter
 
     eval_start = System.monotonic_time(:millisecond)
@@ -493,6 +603,24 @@ defmodule GEPA.Engine do
     end
   end
 
+  defp validation_eval_ids(config, state, target_program_idx) do
+    policy = Map.get(config, :val_evaluation_policy, GEPA.Strategies.EvaluationPolicy.Full)
+
+    cond do
+      is_atom(policy) and function_exported?(policy, :get_eval_batch, 3) ->
+        policy.get_eval_batch(config.valset, state, target_program_idx)
+
+      is_map(policy) and function_exported?(policy.__struct__, :get_eval_batch, 4) ->
+        policy.__struct__.get_eval_batch(policy, config.valset, state, target_program_idx)
+
+      is_map(policy) and function_exported?(policy.__struct__, :get_eval_batch, 3) ->
+        policy.__struct__.get_eval_batch(config.valset, state, target_program_idx)
+
+      true ->
+        DataLoader.all_ids(config.valset)
+    end
+  end
+
   defp eval_batch_from_cached(ids, cached, metric_calls) do
     entries = Enum.map(ids, &Map.fetch!(cached, &1))
     objective_scores = Enum.map(entries, & &1.objective_scores)
@@ -509,8 +637,13 @@ defmodule GEPA.Engine do
     Map.get(config, :candidate_selector, GEPA.Strategies.CandidateSelector.Pareto)
   end
 
-  defp put_candidate_selector(config, selector) do
-    Map.put(config, :candidate_selector, selector || candidate_selector_from_config(config))
+  defp put_reflective_proposer(config, %Reflective{} = proposer) do
+    config
+    |> Map.put(:reflective_proposer, proposer)
+    |> Map.put(
+      :candidate_selector,
+      proposer.candidate_selector || candidate_selector_from_config(config)
+    )
   end
 
   defp create_proposer(config) do
@@ -521,7 +654,12 @@ defmodule GEPA.Engine do
       perfect_score: config[:perfect_score] || 1.0,
       skip_perfect_score: Keyword.get(config |> Map.to_list(), :skip_perfect_score, true),
       minibatch_size: config[:reflection_minibatch_size] || 3,
-      instruction_proposal: config[:instruction_proposal]
+      instruction_proposal: config[:instruction_proposal],
+      batch_sampler: config[:batch_sampler],
+      module_selector: config[:module_selector],
+      custom_candidate_proposer: config[:custom_candidate_proposer],
+      callbacks: config[:callbacks],
+      seed: config[:seed] || 0
     )
   end
 
@@ -667,6 +805,7 @@ defmodule GEPA.Engine do
   defp extract_max_calls(stop_conditions) do
     Enum.find_value(stop_conditions, fn
       %GEPA.StopCondition.MaxCalls{max_calls: max} -> max
+      %GEPA.StopCondition.Composite{conditions: nested} -> extract_max_calls(nested)
       _ -> nil
     end)
   end

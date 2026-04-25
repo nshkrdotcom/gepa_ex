@@ -30,7 +30,7 @@ end
 GEPA optimizes arbitrary systems composed of text components—like AI prompts, code snippets, or textual specs—against any evaluation metric. It employs LLMs to reflect on system behavior, using feedback from execution traces to drive targeted improvements.
 
 This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/gepa), designed to leverage:
-- 🚀 **BEAM concurrency** for 5-10x evaluation speedup (coming in Phase 4)
+- 🚀 **BEAM concurrency** for parallel evaluation
 - 🛡️ **OTP supervision** for fault-tolerant external service integration
 - 🔄 **Functional programming** for clean, testable code
  - 📊 **Telemetry** event schema for lifecycle, iteration, proposal, and evaluation metrics
@@ -49,9 +49,12 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ `GEPA.State` - State management with Pareto, objective-frontier, cache, and best-output tracking
 - ✅ `GEPA.Utils.Pareto` - Multi-objective optimization (93.5% coverage, property-verified)
 - ✅ `GEPA.Result` - Result analysis with objective metadata and round-trip serialization
+- ✅ `GEPA.OptimizeAnything` - Universal optimizer API for arbitrary evaluators
+- ✅ `GEPA.CodeExecution` - Elixir code execution helper for evaluator workflows
+- ✅ `GEPA.Tracking` - Tracker behavior with in-memory and no-op backends
 - ✅ `GEPA.Adapters.Basic` - Q&A adapter (92.1% coverage)
 - ✅ `GEPA.Adapters.Default` - Official-style default adapter for simple chat-model tasks
-- ✅ Stop conditions with budget control
+- ✅ Stop conditions with budget, callback, run-dir file, timeout, score-threshold, tracked-candidate, reflection-cost, proposal-count, and explicit signal controls
 - ✅ State persistence (save/load) with adapter-state snapshots and candidate JSON sidecars
 - ✅ Acceptance criteria (`:strict_improvement`, `:improvement_or_equal`, or custom function/module)
 - ✅ Synchronous observational callbacks for optimization and iteration lifecycle
@@ -78,12 +81,11 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 - ✅ Better training dynamics than simple sampling
 
 **Working Examples:**
-- ✅ 5 live-only .exs script examples (quick start, math, custom adapter, persistence, LLM adapters)
+- ✅ 12 live-only .exs script examples covering core optimization, LLM adapters, stop conditions, policies, optimize-anything, code execution, refiner, and tracking
 - ✅ 3 Livebook notebooks (interactive learning)
 - ✅ Comprehensive examples/README.md guide
-- ✅ Livebook guide with visualizations
 
-**Phase 2 Additions - NEW! 🎉**
+**Additional Core Coverage:**
 
 **Merge Proposer:**
 - ✅ `GEPA.Proposer.Merge` - Genealogy-based candidate merging
@@ -101,39 +103,25 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 **Advanced Stop Conditions:**
 - ✅ `GEPA.StopCondition.Timeout` - Time-based stopping
 - ✅ `GEPA.StopCondition.NoImprovement` - Early stopping
+- ✅ `GEPA.StopCondition.FileStopper` - Run-dir stop-file checks
+- ✅ `GEPA.StopCondition.ScoreThreshold` - Stop when target score is reached
+- ✅ `GEPA.StopCondition.MaxTrackedCandidates` - Candidate-count budget
+- ✅ `GEPA.StopCondition.MaxCandidateProposals` - Proposal-count budget
+- ✅ `GEPA.StopCondition.MaxReflectionCost` - Reflection cost budget
+- ✅ `GEPA.StopCondition.SignalStopper` - Explicit BEAM-safe stop request
 - ✅ Flexible time units and patience settings
-- ✅ 9 tests
 
 **Test Quality:**
-- 329 tests + 16 properties + 1 doctest
+- 385 tests + 16 properties + 1 doctest
 - 100% passing ✅
 - 75.4% coverage (excellent!)
 - Property tests with 1,600+ runs
 - Zero Dialyzer errors
 - TDD methodology throughout
 
-## What's Next?
+## Scope
 
-**✅ Phase 1: Production Viability** - COMPLETE!
-- ✅ Real LLM integration (OpenAI, Gemini)
-- ✅ Quick start examples (4 scripts + 3 livebooks)
-- ✅ EpochShuffledBatchSampler
-
-**✅ Phase 2: Core Completeness** - COMPLETE!
-- ✅ Merge proposer (genealogy-based recombination)
-- ✅ IncrementalEvaluationPolicy (progressive validation)
-- ✅ Additional stop conditions (Timeout, NoImprovement)
-- ✅ Engine integration for merge proposer
-
-**Phase 3: Production Hardening** - in progress
-- ✅ Telemetry event schema and helpers
-- 🎨 Progress tracking (planned)
-- 🛡️ Robust error handling (planned)
-
-**Phase 4: Ecosystem Expansion** - 12-14 weeks
-- 🔌 Additional adapters (Generic, RAG)
-- 🚀 Performance optimization (parallel evaluation)
-- 🌟 Community infrastructure
+This port focuses on the GEPA optimizer core. The Python project's task-specific adapter families and visualization/UI layer are intentionally out of scope here; use the project-owned adapters or implement `GEPA.Adapter` for task integration.
 
 ## Quick Start
 
@@ -246,9 +234,10 @@ This adapter is intentionally a temporary migration-safe boundary. GEPA optimize
 
 GEPA includes multiple candidate selectors to balance exploration vs. exploitation:
 
-- `GEPA.Strategies.CandidateSelector.Pareto` (default): frequency-weighted sampling from Pareto front
-- `GEPA.Strategies.CandidateSelector.CurrentBest`: always pick the best-scoring program
-- `GEPA.Strategies.CandidateSelector.EpsilonGreedy`: configurable exploration with optional epsilon decay
+- `:pareto` / `GEPA.Strategies.CandidateSelector.Pareto` (default): frequency-weighted sampling from Pareto front
+- `:current_best` / `GEPA.Strategies.CandidateSelector.CurrentBest`: always pick the best-scoring program
+- `:epsilon_greedy` / `GEPA.Strategies.CandidateSelector.EpsilonGreedy`: configurable exploration with optional epsilon decay
+- `:top_k_pareto` / `GEPA.Strategies.CandidateSelector.TopKPareto`: sample from the top-scoring Pareto candidates
 
 Stateful selectors (like epsilon-greedy) are carried forward automatically so decay persists across iterations.
 
@@ -269,9 +258,23 @@ selector =
     valset: valset,
     adapter: adapter,
     max_metric_calls: 50,
-    candidate_selector: selector
+    candidate_selection_strategy: selector
   )
 ```
+
+`GEPA.optimize/1` also accepts upstream-style public options for strategy and
+budget construction:
+
+- `:valset` is optional and defaults to `:trainset`.
+- At least one stopping path is required: `:max_metric_calls`,
+  `:max_reflection_cost`, `:max_candidate_proposals`, `:stop_conditions`,
+  `:stop_callbacks`, or `:run_dir`.
+- `:batch_sampler` supports `:epoch_shuffled` or a custom sampler.
+- `:module_selector` supports `:round_robin`, `:all`, or a custom selector.
+- `:val_evaluation_policy` supports `:full_eval` or a custom policy.
+- `:cache_evaluation` creates an evaluation cache for validation scoring.
+- `:use_merge`, `:max_merge_invocations`, and `:merge_val_overlap_floor`
+  construct the merge proposer.
 
 ### LLM-Based Instruction Proposal (NEW!)
 
@@ -321,7 +324,27 @@ end
   )
 ```
 
-When `reflection_llm` is not provided, GEPA uses a simple placeholder improvement marker. Production runs should provide `reflection_llm`.
+When `reflection_llm` is not provided, the adapter must implement `propose_new_texts/4` or `/3`, or you must pass `:custom_candidate_proposer`. GEPA does not use placeholder production mutations.
+
+### Optimize Anything
+
+`GEPA.OptimizeAnything.optimize_anything/1` wraps arbitrary evaluators in the normal GEPA engine. It supports single-task, dataset, and generalization modes; string and map candidates; evaluator log/stdout side information; memory/disk evaluation caching; top-K best eval injection through `GEPA.OptimizeAnything.OptimizationState`; optional per-evaluation refiner; code-execution evaluators; and `GEPA.Tracking`.
+
+```elixir
+evaluator = fn prompt ->
+  score = if String.contains?(prompt, "concise"), do: 1.0, else: 0.0
+  {score, %{Feedback: "Prefer concise answers.", scores: %{"quality" => score}}}
+end
+
+{:ok, result} =
+  GEPA.OptimizeAnything.optimize_anything(
+    seed_candidate: "Answer the question.",
+    evaluator: evaluator,
+    objective: "Improve answer quality.",
+    engine: %{max_metric_calls: 10, cache_evaluation: :memory},
+    reflection: %{reflection_lm: reflection_llm, skip_perfect_score: false}
+  )
+```
 
 ### Interactive Livebooks (NEW!)
 
@@ -337,7 +360,7 @@ livebook server livebooks/01_quick_start.livemd
 
 Available Livebooks:
 - `01_quick_start.livemd` - Interactive introduction
-- `02_advanced_optimization.livemd` - Parameter tuning and visualization
+- `02_advanced_optimization.livemd` - Parameter tuning
 - `03_custom_adapter.livemd` - Build adapters interactively
 
 See [livebooks/README.md](livebooks/README.md) for details!
@@ -403,7 +426,7 @@ GEPA.Engine ← Behaviors → User Implementations
 ### v0.1.2 (2025-11-29)
 - Epsilon-greedy candidate selector with decay/reset and stateful selector support in engine/proposer
 - Telemetry event schema and LLM-backed instruction proposal with custom templates
-- Reflective proposer consumes instruction proposals with fallback marker when no LLM is provided
+- Reflective proposer requires adapter proposal, custom proposal, or reflection LLM; production placeholder mutation is not used
 - Docs for completing the port and telemetry-first experiment tracking
 
 ### v0.1.1 (2025-11-29)

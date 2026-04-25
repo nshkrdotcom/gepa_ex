@@ -30,7 +30,8 @@ defmodule GEPA.Integration.EndToEndTest do
           trainset: trainset,
           valset: valset,
           adapter: Basic.new(),
-          max_metric_calls: 15
+          max_metric_calls: 15,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       # Verify result structure
@@ -51,7 +52,8 @@ defmodule GEPA.Integration.EndToEndTest do
           trainset: trainset,
           valset: valset,
           adapter: Basic.new(),
-          max_metric_calls: 10
+          max_metric_calls: 10,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       # Should have best candidate
@@ -72,7 +74,8 @@ defmodule GEPA.Integration.EndToEndTest do
           trainset: [%{input: "Q", answer: "A"}],
           valset: [%{input: "Q2", answer: "A2"}],
           adapter: Basic.new(),
-          max_metric_calls: 8
+          max_metric_calls: 8,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       # Should respect budget (may be slightly over due to minibatches)
@@ -86,7 +89,8 @@ defmodule GEPA.Integration.EndToEndTest do
           trainset: [%{input: "1", answer: "1"}],
           valset: [%{input: "2", answer: "2"}],
           adapter: Basic.new(),
-          max_metric_calls: 3
+          max_metric_calls: 3,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       assert result.i >= 0
@@ -110,7 +114,8 @@ defmodule GEPA.Integration.EndToEndTest do
           valset: valset,
           adapter: Basic.new(),
           max_metric_calls: 6,
-          run_dir: run_dir
+          run_dir: run_dir,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       # State file should exist
@@ -126,7 +131,8 @@ defmodule GEPA.Integration.EndToEndTest do
           valset: valset,
           adapter: Basic.new(),
           max_metric_calls: 10,
-          run_dir: run_dir
+          run_dir: run_dir,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       # Should have resumed from saved state
@@ -143,5 +149,11 @@ defmodule GEPA.Integration.EndToEndTest do
     dir = Path.join(System.tmp_dir!(), "gepa_test_#{:rand.uniform(1_000_000)}")
     File.mkdir_p!(dir)
     dir
+  end
+
+  defp custom_candidate_proposer do
+    fn candidate, _reflective_dataset, components ->
+      Map.new(components, &{&1, candidate[&1] <> " updated"})
+    end
   end
 end

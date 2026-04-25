@@ -16,7 +16,9 @@ defmodule GEPA.Result do
           parents: [[Types.program_idx() | nil]],
           total_num_evals: non_neg_integer(),
           num_full_ds_evals: non_neg_integer(),
-          i: non_neg_integer(),
+          i: integer(),
+          best_idx: non_neg_integer() | nil,
+          best_candidate: Types.candidate() | term() | nil,
           discovery_eval_counts: [non_neg_integer()],
           best_outputs_valset: %{Types.data_id() => [{Types.program_idx(), term()}]} | nil,
           val_aggregate_subscores: [%{String.t() => float()}] | nil,
@@ -33,6 +35,8 @@ defmodule GEPA.Result do
     :total_num_evals,
     :num_full_ds_evals,
     :i,
+    :best_idx,
+    :best_candidate,
     discovery_eval_counts: [],
     best_outputs_valset: nil,
     val_aggregate_subscores: nil,
@@ -56,6 +60,8 @@ defmodule GEPA.Result do
         end
       end)
 
+    best_idx = best_index(agg_scores)
+
     %__MODULE__{
       candidates: state.program_candidates,
       val_aggregate_scores: agg_scores,
@@ -65,6 +71,8 @@ defmodule GEPA.Result do
       total_num_evals: state.total_num_evals,
       num_full_ds_evals: state.num_full_ds_evals,
       i: state.i,
+      best_idx: best_idx,
+      best_candidate: if(best_idx, do: Enum.at(state.program_candidates, best_idx)),
       discovery_eval_counts: state.num_metric_calls_by_discovery,
       best_outputs_valset: state.best_outputs_valset,
       val_aggregate_subscores:
@@ -97,6 +105,8 @@ defmodule GEPA.Result do
       "total_num_evals" => result.total_num_evals,
       "num_full_ds_evals" => result.num_full_ds_evals,
       "i" => result.i,
+      "best_idx" => result.best_idx,
+      "best_candidate" => result.best_candidate,
       "discovery_eval_counts" => result.discovery_eval_counts,
       "best_outputs_valset" => result.best_outputs_valset,
       "val_aggregate_subscores" => result.val_aggregate_subscores,
@@ -122,6 +132,8 @@ defmodule GEPA.Result do
       total_num_evals: dict_get(data, :total_num_evals, 0),
       num_full_ds_evals: dict_get(data, :num_full_ds_evals, 0),
       i: dict_get(data, :i, 0),
+      best_idx: dict_get(data, :best_idx),
+      best_candidate: dict_get(data, :best_candidate),
       discovery_eval_counts: dict_get(data, :discovery_eval_counts, []),
       best_outputs_valset: dict_get(data, :best_outputs_valset),
       val_aggregate_subscores: dict_get(data, :val_aggregate_subscores),
@@ -135,17 +147,16 @@ defmodule GEPA.Result do
   Get the index of the best candidate by aggregate score.
   """
   @spec best_idx(t()) :: non_neg_integer()
-  def best_idx(%__MODULE__{val_aggregate_scores: scores}) do
-    scores
-    |> Enum.with_index()
-    |> Enum.max_by(fn {score, _idx} -> score end)
-    |> elem(1)
-  end
+  def best_idx(%__MODULE__{best_idx: idx}) when is_integer(idx), do: idx
+  def best_idx(%__MODULE__{val_aggregate_scores: scores}), do: best_index(scores) || 0
 
   @doc """
   Get the best candidate program.
   """
   @spec best_candidate(t()) :: Types.candidate()
+  def best_candidate(%__MODULE__{best_candidate: candidate}) when not is_nil(candidate),
+    do: candidate
+
   def best_candidate(%__MODULE__{} = result) do
     Enum.at(result.candidates, best_idx(result))
   end
@@ -160,6 +171,15 @@ defmodule GEPA.Result do
 
   defp dict_get(data, key, default \\ nil) do
     Map.get(data, Atom.to_string(key), Map.get(data, key, default))
+  end
+
+  defp best_index([]), do: nil
+
+  defp best_index(scores) do
+    scores
+    |> Enum.with_index()
+    |> Enum.max_by(fn {score, _idx} -> score end)
+    |> elem(1)
   end
 
   defp mapset_values_to_lists(nil), do: nil

@@ -43,9 +43,11 @@ defmodule GEPA.Strategies.BatchSamplerTest do
       sampler = EpochShuffled.new()
       assert sampler.minibatch_size == 3
       assert sampler.seed == 0
-      assert sampler.shuffled_ids == nil
+      assert sampler.shuffled_ids == []
       assert sampler.current_position == 0
-      assert sampler.epoch == 0
+      assert sampler.epoch == -1
+      assert sampler.id_freqs == %{}
+      assert sampler.last_trainset_size == 0
     end
 
     test "creates sampler with custom options" do
@@ -64,7 +66,7 @@ defmodule GEPA.Strategies.BatchSamplerTest do
 
       assert length(batch1) == 3
       assert sampler.shuffled_ids != nil
-      assert sampler.epoch == 1
+      assert sampler.epoch == 0
       # All elements should be from the original list (0-indexed)
       assert Enum.all?(batch1, &(&1 in 0..5))
     end
@@ -106,7 +108,7 @@ defmodule GEPA.Strategies.BatchSamplerTest do
       # Different seed for epoch 2 should give different order
       # (technically could be same by chance, but very unlikely with 6! = 720 permutations)
       assert epoch1_order != epoch2_order
-      assert sampler.epoch == 2
+      assert sampler.epoch == 1
     end
 
     test "seed produces deterministic shuffles" do
@@ -142,13 +144,13 @@ defmodule GEPA.Strategies.BatchSamplerTest do
       assert length(batch1) == 2
 
       {batch2, sampler} = EpochShuffled.next_batch(sampler, loader, state)
-      # Last batch in epoch
-      assert length(batch2) == 1
+      # Last batch in epoch is padded to the minibatch size.
+      assert length(batch2) == 2
 
       # Next batch starts new epoch
       {batch3, sampler} = EpochShuffled.next_batch(sampler, loader, state)
       assert length(batch3) == 2
-      assert sampler.epoch == 2
+      assert sampler.epoch == 1
     end
 
     test "different epochs have different shuffles" do

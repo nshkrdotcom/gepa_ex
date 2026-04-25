@@ -8,18 +8,17 @@ defmodule GEPA.Proposer.InstructionProposal do
   ## Default Template
 
   The default template includes placeholders for:
-  - `{component_name}` - Name of the component being optimized
-  - `{current_instruction}` - Current instruction text
-  - `{reflective_dataset}` - Formatted examples with feedback
+  - `<curr_param>` - Current instruction text
+  - `<side_info>` - Formatted examples with feedback
 
   ## Custom Templates
 
       template = \"\"\"
-      Improve this prompt for {component_name}:
+      Improve this prompt:
 
-      Current: {current_instruction}
+      Current: <curr_param>
 
-      Examples: {reflective_dataset}
+      Examples: <side_info>
 
       Better prompt:
       \"\"\"
@@ -63,29 +62,27 @@ defmodule GEPA.Proposer.InstructionProposal do
           structured_output: boolean()
         }
 
-  @required_placeholders ["{component_name}", "{current_instruction}", "{reflective_dataset}"]
+  @upstream_placeholders ["<curr_param>", "<side_info>"]
+  @legacy_placeholders ["{component_name}", "{current_instruction}", "{reflective_dataset}"]
 
   @default_template """
-  You are optimizing instructions for a language model pipeline.
-
-  ## Current Instruction for "{component_name}"
-
+  I provided an assistant with the following instructions to perform a task for me:
   ```
-  {current_instruction}
+  <curr_param>
   ```
 
-  ## Performance Examples
+  The following are examples of different task inputs provided to the assistant along with the assistant's response for each of them, and some feedback on how the assistant's response could be better:
+  ```
+  <side_info>
+  ```
 
-  {reflective_dataset}
+  Your task is to write a new instruction for the assistant.
 
-  ## Task
+  Read the inputs carefully and identify the input format and infer detailed task description about the task I wish to solve with the assistant.
 
-  Based on the feedback above, propose an improved instruction that:
-  1. Addresses the identified issues
-  2. Maintains the core functionality
-  3. Is clear and concise
+  Read all the assistant responses and the corresponding feedback. Identify all niche and domain specific factual information about the task and include it in the instruction, as a lot of it may not be available to the assistant in the future. The assistant may have utilized a generalizable strategy to solve the task, if so, include that in the instruction as well.
 
-  Write ONLY the new instruction, nothing else:
+  Provide the new instructions within ``` blocks.
   """
 
   @doc """
@@ -100,7 +97,8 @@ defmodule GEPA.Proposer.InstructionProposal do
   ## Options
 
   - `:llm` - LLM configuration for proposals (required)
-  - `:template` - Custom prompt template (default: built-in template)
+  - `:template` - Custom prompt template or component/template map
+    (default: built-in template)
   - `:extract_fn` - Function to extract instruction from LLM response
   - `:format_fn` - Function to format reflective dataset
 
@@ -158,18 +156,28 @@ defmodule GEPA.Proposer.InstructionProposal do
   @spec propose(t(), String.t(), String.t(), list(map())) ::
           {:ok, String.t()} | {:error, term()}
   def propose(%__MODULE__{} = config, component_name, current_instruction, dataset) do
-    formatted_dataset = format_dataset(config, dataset)
+    case propose_with_metadata(config, component_name, current_instruction, dataset) do
+      {:ok, new_instruction, _prompt, _raw_response} -> {:ok, new_instruction}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-    prompt =
-      config.template
-      |> String.replace("{component_name}", component_name)
-      |> String.replace("{current_instruction}", current_instruction)
-      |> String.replace("{reflective_dataset}", formatted_dataset)
+  @doc """
+  Propose new instruction text and return the rendered prompt plus raw LLM
+  output for tracking.
+  """
+  @spec propose_with_metadata(t(), String.t(), String.t(), list(map())) ::
+          {:ok, String.t(), String.t(), String.t()} | {:error, term()}
+  def propose_with_metadata(%__MODULE__{} = config, component_name, current_instruction, dataset) do
+    formatted_dataset = format_dataset(config, dataset)
+    template = template_for_component(config.template, component_name)
+
+    prompt = render_prompt(template, component_name, current_instruction, formatted_dataset)
 
     if config.structured_output do
       case GEPA.LLM.complete_structured(config.llm, prompt) do
         {:ok, result} ->
-          {:ok, extract_structured_instruction(result)}
+          {:ok, extract_structured_instruction(result), prompt, inspect(result)}
 
         {:error, reason} ->
           {:error, {:llm_error, reason}}
@@ -177,7 +185,7 @@ defmodule GEPA.Proposer.InstructionProposal do
     else
       case GEPA.LLM.complete(config.llm, prompt) do
         {:ok, response} ->
-          {:ok, extract_instruction(config, response)}
+          {:ok, extract_instruction(config, response), prompt, response}
 
         {:error, reason} ->
           {:error, {:llm_error, reason}}
@@ -212,13 +220,31 @@ defmodule GEPA.Proposer.InstructionProposal do
   @spec propose_batch(t(), map(), map(), list(String.t())) ::
           {:ok, map()} | {:error, term()}
   def propose_batch(%__MODULE__{} = config, candidate, reflective_dataset, components) do
+    case propose_batch_with_metadata(config, candidate, reflective_dataset, components) do
+      {:ok, new_texts, _prompts, _raw_outputs} -> {:ok, new_texts}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Propose new text for multiple components and retain prompt/raw-output
+  metadata keyed by component.
+  """
+  @spec propose_batch_with_metadata(t(), map(), map(), list(String.t())) ::
+          {:ok, map(), map(), map()} | {:error, term()}
+  def propose_batch_with_metadata(
+        %__MODULE__{} = config,
+        candidate,
+        reflective_dataset,
+        components
+      ) do
     results =
       Enum.map(components, fn component ->
         current = Map.get(candidate, component, "")
         dataset = Map.get(reflective_dataset, component, [])
 
-        case propose(config, component, current, dataset) do
-          {:ok, new_text} -> {:ok, {component, new_text}}
+        case propose_with_metadata(config, component, current, dataset) do
+          {:ok, new_text, prompt, raw_output} -> {:ok, {component, new_text, prompt, raw_output}}
           {:error, reason} -> {:error, {component, reason}}
         end
       end)
@@ -226,12 +252,18 @@ defmodule GEPA.Proposer.InstructionProposal do
     errors = Enum.filter(results, &match?({:error, _}, &1))
 
     if Enum.empty?(errors) do
-      new_texts =
-        results
-        |> Enum.map(fn {:ok, pair} -> pair end)
-        |> Enum.into(%{})
+      successes = Enum.map(results, fn {:ok, value} -> value end)
 
-      {:ok, new_texts}
+      new_texts =
+        Map.new(successes, fn {component, new_text, _prompt, _raw} -> {component, new_text} end)
+
+      prompts =
+        Map.new(successes, fn {component, _new_text, prompt, _raw} -> {component, prompt} end)
+
+      raw_outputs =
+        Map.new(successes, fn {component, _new_text, _prompt, raw} -> {component, raw} end)
+
+      {:ok, new_texts, prompts, raw_outputs}
     else
       {:error, {:partial_failure, errors}}
     end
@@ -239,15 +271,56 @@ defmodule GEPA.Proposer.InstructionProposal do
 
   # Private functions
 
-  defp validate_template!(template) do
-    missing =
-      Enum.reject(@required_placeholders, fn placeholder ->
-        String.contains?(template, placeholder)
-      end)
+  defp validate_template!(template) when is_map(template) do
+    Enum.each(template, fn {_component, component_template} ->
+      validate_template!(component_template)
+    end)
+  end
 
-    if not Enum.empty?(missing) do
-      raise ArgumentError,
-            "template missing required placeholders: #{inspect(missing)}"
+  defp validate_template!(template) when is_binary(template) do
+    upstream? = Enum.all?(@upstream_placeholders, &String.contains?(template, &1))
+    legacy? = Enum.all?(@legacy_placeholders, &String.contains?(template, &1))
+
+    cond do
+      upstream? or legacy? ->
+        :ok
+
+      Enum.any?(@legacy_placeholders, &String.contains?(template, &1)) ->
+        missing = Enum.reject(@legacy_placeholders, &String.contains?(template, &1))
+        raise ArgumentError, "template missing required placeholders: #{inspect(missing)}"
+
+      Enum.any?(@upstream_placeholders, &String.contains?(template, &1)) ->
+        missing = Enum.reject(@upstream_placeholders, &String.contains?(template, &1))
+        raise ArgumentError, "template missing required placeholders: #{inspect(missing)}"
+
+      true ->
+        raise ArgumentError,
+              "template must include upstream placeholders #{inspect(@upstream_placeholders)} or legacy placeholders #{inspect(@legacy_placeholders)}"
+    end
+  end
+
+  defp validate_template!(template) do
+    raise ArgumentError,
+          "template must be a string or component/template map, got: #{inspect(template)}"
+  end
+
+  defp template_for_component(template, component_name) when is_map(template) do
+    Map.get(template, component_name) || Map.get(template, to_string(component_name)) ||
+      @default_template
+  end
+
+  defp template_for_component(template, _component_name), do: template
+
+  defp render_prompt(template, component_name, current_instruction, formatted_dataset) do
+    if Enum.all?(@upstream_placeholders, &String.contains?(template, &1)) do
+      template
+      |> String.replace("<curr_param>", current_instruction)
+      |> String.replace("<side_info>", formatted_dataset)
+    else
+      template
+      |> String.replace("{component_name}", component_name)
+      |> String.replace("{current_instruction}", current_instruction)
+      |> String.replace("{reflective_dataset}", formatted_dataset)
     end
   end
 

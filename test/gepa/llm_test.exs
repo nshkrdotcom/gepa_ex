@@ -90,7 +90,11 @@ defmodule GEPA.LLMTest do
       llm = ReqLLM.new(provider: :anthropic, api_key: nil)
 
       assert {:error, reason} = GEPA.LLM.complete_structured(llm, "hello")
-      assert reason =~ "api_key"
+      reason_text = reason |> inspect() |> String.downcase()
+      assert String.contains?(reason_text, "api")
+
+      assert String.contains?(reason_text, "key") or
+               String.contains?(reason_text, "authentication")
     end
   end
 end

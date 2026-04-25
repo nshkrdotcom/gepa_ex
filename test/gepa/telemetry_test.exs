@@ -55,6 +55,10 @@ defmodule GEPA.TelemetryTest do
 
       {:ok, dataset}
     end
+
+    def propose_new_texts(_adapter, candidate, _reflective_dataset, components) do
+      {:ok, Map.new(components, &{&1, candidate[&1] <> " [Optimized]"})}
+    end
   end
 
   setup do

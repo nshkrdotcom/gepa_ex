@@ -35,7 +35,7 @@ defmodule GEPA.ResultTest do
       assert result.val_aggregate_subscores == [%{"accuracy" => 0.7}, %{"accuracy" => 0.9}]
       assert result.objective_pareto_front == %{"accuracy" => 0.9}
       assert result.per_objective_best_candidates == %{"accuracy" => MapSet.new([1])}
-      assert result.discovery_eval_counts == [3]
+      assert result.discovery_eval_counts == [0, 2]
     end
   end
 

@@ -235,16 +235,16 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
     end
   end
 
-  describe "backward compatibility" do
-    test "optimization works without reflection_llm (fallback mode)" do
+  describe "custom proposal compatibility" do
+    test "optimization works without reflection_llm when a custom proposer is provided" do
       {:ok, result} =
         GEPA.optimize(
           seed_candidate: %{"instruction" => "Test"},
           trainset: [%{input: "Q", answer: "A"}],
           valset: [%{input: "Q2", answer: "A2"}],
           adapter: Basic.new(),
-          max_metric_calls: 10
-          # No reflection_llm - uses fallback
+          max_metric_calls: 10,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       assert %GEPA.Result{} = result
@@ -263,11 +263,18 @@ defmodule GEPA.Integration.InstructionProposalIntegrationTest do
           valset: valset,
           adapter: Basic.new(),
           max_metric_calls: 5,
-          skip_perfect_score: true
+          skip_perfect_score: true,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       best = GEPA.Result.best_candidate(result)
       assert is_map(best)
+    end
+  end
+
+  defp custom_candidate_proposer do
+    fn candidate, _reflective_dataset, components ->
+      Map.new(components, &{&1, candidate[&1] <> " updated"})
     end
   end
 end

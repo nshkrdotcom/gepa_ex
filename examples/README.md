@@ -133,6 +133,13 @@ mix run examples/02_math_problems.exs -- --simple
 mix run examples/03_custom_adapter.exs -- --simple
 mix run examples/04_state_persistence.exs -- --simple
 mix run examples/05_llm_adapters.exs -- --simple
+mix run examples/06_stop_conditions.exs -- --simple
+mix run examples/07_merge_and_policies.exs -- --simple
+mix run examples/08_optimize_anything_single_task.exs -- --simple
+mix run examples/09_optimize_anything_dataset.exs -- --simple
+mix run examples/10_code_execution.exs -- --simple
+mix run examples/11_refiner.exs -- --simple
+mix run examples/12_tracking.exs -- --simple
 ```
 
 You can combine `--simple` with explicit backend selection:
@@ -233,6 +240,62 @@ mix run examples/05_llm_adapters.exs -- \
   --lane core \
   --session gepa_adapter_smoke \
   --input "Reply with exactly: gepa adapter ok"
+```
+
+### 06 Stop Conditions
+
+Runs GEPA with multiple stop conditions composed together.
+
+```bash
+mix run examples/06_stop_conditions.exs -- --simple
+```
+
+### 07 Merge and Policies
+
+Runs GEPA with merge enabled and explicit strategy settings.
+
+```bash
+mix run examples/07_merge_and_policies.exs -- --simple
+```
+
+### 08 Optimize Anything Single Task
+
+Optimizes a single prompt string with a live LLM-backed evaluator.
+
+```bash
+mix run examples/08_optimize_anything_single_task.exs -- --simple
+```
+
+### 09 Optimize Anything Dataset
+
+Optimizes a prompt map over question/answer examples.
+
+```bash
+mix run examples/09_optimize_anything_dataset.exs -- --simple
+```
+
+### 10 Code Execution
+
+Optimizes a small Elixir snippet and evaluates it through `GEPA.CodeExecution`.
+
+```bash
+mix run examples/10_code_execution.exs -- --simple
+```
+
+### 11 Refiner
+
+Runs `GEPA.OptimizeAnything` with the per-evaluation refiner enabled.
+
+```bash
+mix run examples/11_refiner.exs -- --simple
+```
+
+### 12 Tracking
+
+Runs GEPA with `GEPA.Tracking.InMemory` enabled.
+
+```bash
+mix run examples/12_tracking.exs -- --simple
 ```
 
 ## Run Everything

@@ -18,6 +18,11 @@ defmodule GEPA.Callbacks do
           | :optimization_end
           | :iteration_start
           | :iteration_end
+          | :candidate_selected
+          | :minibatch_sampled
+          | :evaluation_skipped
+          | :reflective_dataset_built
+          | :proposal_generated_texts
           | :candidate_accepted
           | :candidate_rejected
 
