@@ -19,6 +19,7 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
     :timeout,
     :req_llm_module,
     :response_module,
+    :env,
     req_options: [],
     provider_opts: []
   ]
@@ -35,7 +36,8 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
           req_options: keyword(),
           provider_opts: keyword(),
           req_llm_module: module(),
-          response_module: module()
+          response_module: module(),
+          env: (String.t() -> String.t() | nil)
         }
 
   @providers [:openai, :gemini, :anthropic]
@@ -49,6 +51,12 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   @default_temperature 0.7
   @default_max_tokens 2000
   @default_timeout 60_000
+
+  @env_vars %{
+    gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    openai: ["OPENAI_API_KEY"],
+    anthropic: ["ANTHROPIC_API_KEY"]
+  }
 
   @instruction_schema [
     instruction: [type: :string, required: true, doc: "The improved instruction text."]
@@ -99,7 +107,8 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
          req_options: Keyword.get(opts, :req_options, []),
          provider_opts: Keyword.get(opts, :provider_opts, []),
          req_llm_module: Keyword.get(opts, :req_llm_module, ReqLLM),
-         response_module: Keyword.get(opts, :response_module, ReqLLM.Response)
+         response_module: Keyword.get(opts, :response_module, ReqLLM.Response),
+         env: Keyword.get(opts, :env, &System.get_env/1)
        }}
     end
   end
@@ -167,9 +176,10 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   end
 
   defp generate_text(%__MODULE__{} = state, %Request{} = request) do
+    api_key = request_api_key(request, state)
+
     with {:ok, model} <- required_value(:model, request.model || state.model),
-         {:ok, api_key} <- required_value(:api_key, request_api_key(request, state)),
-         :ok <- put_provider_key(state, api_key),
+         :ok <- maybe_put_provider_key(state, api_key),
          {:ok, response} <-
            state.req_llm_module.generate_text(
              model_spec(state.provider, model),
@@ -183,9 +193,10 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   end
 
   defp generate_object(%__MODULE__{} = state, %Request{} = request) do
+    api_key = request_api_key(request, state)
+
     with {:ok, model} <- required_value(:model, request.model || state.model),
-         {:ok, api_key} <- required_value(:api_key, request_api_key(request, state)),
-         :ok <- put_provider_key(state, api_key),
+         :ok <- maybe_put_provider_key(state, api_key),
          {:ok, response} <-
            state.req_llm_module.generate_object(
              model_spec(state.provider, model),
@@ -260,11 +271,11 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
 
   defp base_request_opts(%__MODULE__{} = state, %Request{} = request, api_key) do
     [
-      api_key: api_key,
       temperature: request.temperature || state.temperature || @default_temperature,
       max_tokens: request.max_tokens || state.max_tokens || @default_max_tokens,
       receive_timeout: request.timeout || state.timeout
     ]
+    |> maybe_add_opt(:api_key, api_key)
   end
 
   defp maybe_add_opt(list, _key, nil), do: list
@@ -298,10 +309,23 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   defp to_req_llm_tool(tool), do: tool
 
   defp request_api_key(%Request{} = request, %__MODULE__{} = state) do
-    Keyword.get(request.provider_opts, :api_key) || state.api_key
+    Keyword.get(request.provider_opts, :api_key) || state.api_key || env_api_key(state)
   end
 
-  defp put_provider_key(%__MODULE__{} = state, api_key) do
+  defp env_api_key(%__MODULE__{} = state) do
+    @env_vars
+    |> Map.fetch!(state.provider)
+    |> Enum.find_value(fn key ->
+      case state.env.(key) do
+        value when is_binary(value) and value != "" -> value
+        _other -> nil
+      end
+    end)
+  end
+
+  defp maybe_put_provider_key(%__MODULE__{}, nil), do: :ok
+
+  defp maybe_put_provider_key(%__MODULE__{} = state, api_key) do
     state.req_llm_module.put_key(provider_key(state.provider), api_key)
   end
 
@@ -313,7 +337,7 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   defp model_spec(:anthropic, model), do: "anthropic:#{model}"
 
   defp provider_key(:openai), do: :openai_api_key
-  defp provider_key(:gemini), do: :gemini_api_key
+  defp provider_key(:gemini), do: :google_api_key
   defp provider_key(:anthropic), do: :anthropic_api_key
 
   defp response_field(%field{} = response, key) when is_atom(field), do: Map.get(response, key)

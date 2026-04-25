@@ -49,7 +49,10 @@ Responsibilities:
   - `:openai` -> `openai:MODEL`
   - `:gemini` -> `google:MODEL`
   - `:anthropic` -> `anthropic:MODEL`
-- API-key handling from explicit opts only.
+- API-key handling from explicit opts, application config, or provider key defaults.
+  - Gemini: `GEMINI_API_KEY`, then `GOOGLE_API_KEY`
+  - OpenAI: `OPENAI_API_KEY`
+  - Anthropic: `ANTHROPIC_API_KEY`
 - Text completion via `ReqLLM.generate_text/3`.
 - Structured output via `ReqLLM.generate_object/4`.
 - Response normalization into `GEPA.LLM.Response`.
@@ -104,8 +107,11 @@ The facade is tested without provider credentials by injecting test-double modul
 
 Relevant examples:
 
-- `examples/01_quick_start.exs`: live optimization over user-provided JSONL data.
-- `examples/05_llm_adapters.exs`: one explicit live adapter call through ReqLLM or ASM.
+- `examples/support/live_cli.exs`: example-only CLI helper for live runs. It stays outside `lib/` and is not a public package API.
+- `examples/01_quick_start.exs`: live optimization over user-provided JSONL data or `--simple` demo data.
+- `examples/05_llm_adapters.exs`: one live adapter call through ReqLLM or ASM.
+
+Examples are live-only. They call only the real selected provider adapter; deterministic doubles belong in tests only.
 
 ## Quality Gates
 

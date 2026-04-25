@@ -1,5 +1,7 @@
 #!/usr/bin/env elixir
 
+Code.require_file("support/live_cli.exs", __DIR__)
+
 example = [
   name: "GEPA LLM Adapter Live Smoke Example",
   script: "examples/05_llm_adapters.exs",
@@ -7,11 +9,11 @@ example = [
   required: [:input]
 ]
 
-config = GEPA.Examples.LiveCLI.parse_or_halt(System.argv(), example)
+config = LiveCLI.parse_or_halt(System.argv(), example)
 call_count = if config.stream?, do: 1, else: 1
 
 IO.puts(
-  GEPA.Examples.LiveCLI.cost_warning(example[:name], config.adapter, config.provider, call_count)
+  LiveCLI.cost_warning(example[:name], config.adapter, config.provider, call_count)
 )
 
 IO.puts("""
@@ -28,7 +30,7 @@ Structured output: #{config.structured_output?}
 cond do
   config.stream? ->
     {:ok, stream} =
-      GEPA.LLM.stream(config.client, config.input, GEPA.Examples.LiveCLI.generation_opts(config))
+      GEPA.LLM.stream(config.client, config.input, LiveCLI.generation_opts(config))
 
     IO.puts("Stream response:")
     Enum.each(stream, &IO.write(to_string(&1)))
@@ -38,7 +40,7 @@ cond do
     case GEPA.LLM.complete_structured(
            config.client,
            config.input,
-           GEPA.Examples.LiveCLI.generation_opts(config)
+           LiveCLI.generation_opts(config)
          ) do
       {:ok, object} ->
         IO.puts("Structured response:")
@@ -53,7 +55,7 @@ cond do
       GEPA.LLM.complete(
         config.client,
         config.input,
-        GEPA.Examples.LiveCLI.generation_opts(config)
+        LiveCLI.generation_opts(config)
       )
 
     IO.puts("Response:")

@@ -4,7 +4,10 @@ defmodule GEPA.LLM.AdapterFacadeTest do
   alias GEPA.LLM.{Client, Request, Tool}
 
   defmodule FakeReqLLM do
-    def put_key(_key, _value), do: :ok
+    def put_key(key, value) do
+      send(self(), {:put_key, key, value})
+      :ok
+    end
 
     def generate_text(model_spec, prompt, opts) do
       {:ok, %{text: "text:#{model_spec}:#{prompt}", usage: %{tokens: 7}, opts: opts}}
@@ -123,6 +126,43 @@ defmodule GEPA.LLM.AdapterFacadeTest do
 
       assert {:ok, %{"instruction" => "structured:openai:gpt-test:prompt"}} =
                GEPA.LLM.complete_structured(client, "prompt")
+    end
+
+    test "Gemini resolves GEMINI_API_KEY alias and writes ReqLLM Google key config" do
+      client =
+        GEPA.LLM.req_llm(:gemini,
+          req_llm_module: FakeReqLLM,
+          response_module: FakeReqLLMResponse,
+          env: fn
+            "GEMINI_API_KEY" -> "gemini-env-key"
+            _key -> nil
+          end
+        )
+
+      request = Request.from_prompt("hello")
+
+      assert {:ok, response} = client.adapter.complete(client, request)
+      assert response.raw.opts[:api_key] == "gemini-env-key"
+      assert_received {:put_key, :google_api_key, "gemini-env-key"}
+    end
+
+    test "explicit API key overrides ReqLLM provider key aliases" do
+      client =
+        GEPA.LLM.req_llm(:gemini,
+          api_key: "explicit-key",
+          req_llm_module: FakeReqLLM,
+          response_module: FakeReqLLMResponse,
+          env: fn
+            "GEMINI_API_KEY" -> "gemini-env-key"
+            _key -> nil
+          end
+        )
+
+      request = Request.from_prompt("hello")
+
+      assert {:ok, response} = client.adapter.complete(client, request)
+      assert response.raw.opts[:api_key] == "explicit-key"
+      assert_received {:put_key, :google_api_key, "explicit-key"}
     end
 
     test "converts portable tools to ReqLLM tools" do

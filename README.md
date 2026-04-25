@@ -68,7 +68,7 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
   - Google Gemini support (gemini-3.1-flash-lite-preview)
   - Anthropic support through ReqLLM
   - Error handling, retries, timeouts
-  - Configurable via explicit runtime options or application config
+  - Configurable via explicit runtime options, application config, or provider key defaults
 - ✅ `GEPA.LLM.agent/2` - Local CLI/agent facade via Agent Session Manager
 - ✅ `GEPA.LLM.ReqLLM` - Backward-compatible ReqLLM wrapper
 
@@ -139,15 +139,31 @@ This is an Elixir port of the [Python GEPA library](https://github.com/gepa-ai/g
 
 ### Live Examples
 
-The scripts in `examples/` are live-only. They do not choose a default provider or adapter, do not inspect ambient shell credential state, and do not contain built-in datasets. Pass explicit provider configuration and your own JSONL data.
+The scripts in `examples/` are live-only. They call real ReqLLM or Agent Session Manager backends and print a cost warning before any LLM call. They use sensible hosted-provider defaults from configured keys, while explicit CLI options always override the defaults.
+
+Fastest live smoke:
+
+```bash
+mix run examples/05_llm_adapters.exs -- --simple
+```
+
+Run every example with small built-in demo prompts/data:
+
+```bash
+examples/run_all.sh --simple
+```
+
+Default hosted-provider key lookup:
+
+- Gemini: `GEMINI_API_KEY`, then `GOOGLE_API_KEY`
+- OpenAI: `OPENAI_API_KEY`
+- Anthropic: `ANTHROPIC_API_KEY`
 
 ReqLLM OpenAI:
 
 ```bash
 mix run examples/01_quick_start.exs -- \
-  --adapter req_llm \
   --provider openai \
-  --api-key sk-... \
   --train-jsonl /path/to/qa_train.jsonl \
   --val-jsonl /path/to/qa_val.jsonl
 ```
@@ -169,16 +185,16 @@ See [Examples overview](examples/README.md) for the full onboarding guide, data 
 ### With Production LLMs
 
 ```elixir
-# OpenAI through the ReqLLM adapter
-llm = GEPA.LLM.req_llm(:openai, api_key: "sk-...")
+# OpenAI through the ReqLLM adapter. Uses OPENAI_API_KEY by default.
+llm = GEPA.LLM.req_llm(:openai)
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
-# Gemini through the ReqLLM adapter
-llm = GEPA.LLM.req_llm(:gemini, api_key: "...")
+# Gemini through the ReqLLM adapter. Uses GEMINI_API_KEY, then GOOGLE_API_KEY.
+llm = GEPA.LLM.req_llm(:gemini)
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
-# Anthropic Claude through the ReqLLM adapter
-llm = GEPA.LLM.req_llm(:anthropic, api_key: "...")
+# Anthropic Claude through the ReqLLM adapter. Uses ANTHROPIC_API_KEY.
+llm = GEPA.LLM.req_llm(:anthropic)
 adapter = GEPA.Adapters.Basic.new(llm: llm)
 
 # Then run optimization as above

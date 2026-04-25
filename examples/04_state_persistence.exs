@@ -1,5 +1,7 @@
 #!/usr/bin/env elixir
 
+Code.require_file("support/live_cli.exs", __DIR__)
+
 example = [
   name: "GEPA State Persistence Live Example",
   script: "examples/04_state_persistence.exs",
@@ -7,11 +9,11 @@ example = [
   required: [:train_jsonl, :val_jsonl, :run_dir]
 ]
 
-config = GEPA.Examples.LiveCLI.parse_or_halt(System.argv(), example)
+config = LiveCLI.parse_or_halt(System.argv(), example)
 estimated_calls = max(config.max_metric_calls * 2, 1)
 
 IO.puts(
-  GEPA.Examples.LiveCLI.cost_warning(
+  LiveCLI.cost_warning(
     example[:name],
     config.adapter,
     config.provider,

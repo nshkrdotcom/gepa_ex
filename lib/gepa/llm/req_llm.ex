@@ -22,6 +22,7 @@ defmodule GEPA.LLM.ReqLLM do
     :timeout,
     :req_llm_module,
     :response_module,
+    :env,
     req_options: [],
     provider_opts: []
   ]
@@ -38,7 +39,8 @@ defmodule GEPA.LLM.ReqLLM do
           req_options: keyword(),
           provider_opts: keyword(),
           req_llm_module: module(),
-          response_module: module()
+          response_module: module(),
+          env: (String.t() -> String.t() | nil) | nil
         }
 
   @doc """
@@ -89,7 +91,8 @@ defmodule GEPA.LLM.ReqLLM do
       req_options: state.req_options,
       provider_opts: state.provider_opts,
       req_llm_module: state.req_llm_module,
-      response_module: state.response_module
+      response_module: state.response_module,
+      env: state.env
     }
   end
 
@@ -105,7 +108,8 @@ defmodule GEPA.LLM.ReqLLM do
       req_options: llm.req_options,
       provider_opts: llm.provider_opts,
       req_llm_module: llm.req_llm_module || ReqLLM,
-      response_module: llm.response_module || ReqLLM.Response
+      response_module: llm.response_module || ReqLLM.Response,
+      env: llm.env || (&System.get_env/1)
     }
   end
 end
