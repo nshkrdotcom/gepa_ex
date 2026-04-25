@@ -194,6 +194,7 @@ defmodule GEPA.LLM.AdapterFacadeTest do
 
       assert %Client{} = client
       assert client.provider == :codex
+      assert client.model == "gpt-5.4-mini"
       assert MapSet.member?(client.capabilities, :stream)
       refute MapSet.member?(client.capabilities, :structured_output)
     end
@@ -208,6 +209,15 @@ defmodule GEPA.LLM.AdapterFacadeTest do
       assert response.metadata.run_id == "run-1"
       assert response.metadata.session_id == "session-1"
       assert response.metadata.lane == :core
+      assert response.metadata.opts[:model] == "gpt-5.4-mini"
+    end
+
+    test "per-call ASM model overrides the Codex default model" do
+      client = GEPA.LLM.agent(:codex, asm_module: FakeASM, lane: :core)
+      request = Request.from_prompt("hello", model: "gpt-explicit")
+
+      assert {:ok, response} = client.adapter.complete(client, request)
+      assert response.metadata.opts[:model] == "gpt-explicit"
     end
 
     test "complete/3 passes named ASM sessions as session_id query options" do
@@ -218,6 +228,7 @@ defmodule GEPA.LLM.AdapterFacadeTest do
       assert response.text == "asm::codex:hello"
       assert response.session_ref == "gepa-test"
       assert response.metadata.opts[:session_id] == "gepa-test"
+      assert response.metadata.opts[:model] == "gpt-5.4-mini"
       assert response.metadata.target == :codex
     end
 

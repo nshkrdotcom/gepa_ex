@@ -87,7 +87,7 @@ Default Models:
   --adapter req_llm --provider openai     -> gpt-5.4-mini
   --adapter req_llm --provider gemini     -> gemini-3.1-flash-lite-preview
   --adapter req_llm --provider anthropic  -> claude-haiku-4-5
-  --adapter asm --provider codex          -> ASM/Codex default unless --model is provided
+  --adapter asm --provider codex          -> gpt-5.4-mini
   --adapter asm --provider claude         -> ASM/Claude default unless --model is provided
   --adapter asm --provider gemini         -> ASM/Gemini default unless --model is provided
   --adapter asm --provider amp            -> ASM/Amp default unless --model is provided
@@ -270,6 +270,10 @@ case "$adapter" in
     errors+=("invalid --adapter ${adapter}; expected req_llm or asm")
     ;;
 esac
+
+if [[ "$adapter" == "asm" && "$provider" == "codex" && -z "$model" ]]; then
+  model="gpt-5.4-mini"
+fi
 
 if [[ "$simple" == "false" ]]; then
   [[ -n "$qa_train_jsonl" ]] || errors+=("missing required --qa-train-jsonl unless --simple is used")

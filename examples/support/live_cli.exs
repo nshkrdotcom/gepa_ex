@@ -3,6 +3,7 @@ defmodule LiveCLI do
 
   @req_llm_providers [:openai, :gemini, :anthropic]
   @asm_providers [:codex, :codex_exec, :claude, :gemini, :amp]
+  @asm_default_models %{codex: "gpt-5.4-mini"}
   @strict [
     help: :boolean,
     simple: :boolean,
@@ -150,7 +151,7 @@ defmodule LiveCLI do
       --adapter req_llm --provider openai     -> gpt-5.4-mini
       --adapter req_llm --provider gemini     -> gemini-3.1-flash-lite-preview
       --adapter req_llm --provider anthropic  -> claude-haiku-4-5
-      --adapter asm --provider codex          -> ASM/Codex default unless --model is provided
+      --adapter asm --provider codex          -> gpt-5.4-mini
       --adapter asm --provider claude         -> ASM/Claude default unless --model is provided
       --adapter asm --provider gemini         -> ASM/Gemini default unless --model is provided
       --adapter asm --provider amp            -> ASM/Amp default unless --model is provided
@@ -193,6 +194,7 @@ defmodule LiveCLI do
     with {:ok, opts} <- apply_provider_defaults(opts, env, app_config),
          {:ok, adapter} <- parse_adapter(opts),
          {:ok, provider} <- parse_provider(opts, adapter),
+         opts = apply_model_defaults(opts, adapter, provider),
          {:ok, lane} <- parse_lane(opts),
          api_key = req_llm_api_key(opts, provider, env, app_config),
          :ok <- validate_req_llm_key(adapter, provider, api_key),
@@ -280,6 +282,16 @@ defmodule LiveCLI do
         {:error, ["invalid --provider #{inspect(provider)}; cannot infer adapter"]}
     end
   end
+
+  defp apply_model_defaults(opts, :asm, provider) do
+    case {Keyword.get(opts, :model), Map.get(@asm_default_models, provider)} do
+      {model, _default} when is_binary(model) and model != "" -> opts
+      {_model, nil} -> opts
+      {_model, default} -> Keyword.put(opts, :model, default)
+    end
+  end
+
+  defp apply_model_defaults(opts, _adapter, _provider), do: opts
 
   defp default_req_llm_provider(env, app_config) do
     Enum.find_value([:gemini, :openai, :anthropic], fn provider ->

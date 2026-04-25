@@ -1,7 +1,7 @@
 defmodule GepaEx.MixProject do
   use Mix.Project
 
-  @version "0.1.2"
+  @version "0.2.0"
   @source_url "https://github.com/nshkrdotcom/gepa_ex"
 
   def project do
@@ -50,7 +50,7 @@ defmodule GepaEx.MixProject do
 
       # LLM integration
       {:req_llm, "~> 1.10"},
-      {:agent_session_manager, path: "../agent_session_manager"},
+      {:agent_session_manager, "~> 0.9.2"},
       {:req, "~> 0.5.17"},
 
       # Development and testing
@@ -83,18 +83,27 @@ defmodule GepaEx.MixProject do
       extras: [
         {"README.md", title: "Overview"},
         {"CHANGELOG.md", title: "Changelog"},
-        "docs/PROJECT_SUMMARY.md",
-        "docs/TECHNICAL_DESIGN.md",
-        "docs/llm_adapter_design.md",
+        "guides/getting_started.md",
+        "guides/core_api.md",
+        "guides/llm_and_adapters.md",
+        "guides/optimization_workflow.md",
+        "guides/optimize_anything.md",
+        "guides/observability.md",
+        "guides/examples_and_livebooks.md",
         {"examples/README.md", title: "Examples"},
         {"livebooks/README.md", title: "Livebooks"},
         "LICENSE"
       ],
       groups_for_extras: [
-        Overview: ["README.md", "CHANGELOG.md", "docs/PROJECT_SUMMARY.md"],
-        "Design Docs": [
-          "docs/TECHNICAL_DESIGN.md",
-          "docs/llm_adapter_design.md"
+        Overview: ["README.md", "CHANGELOG.md"],
+        Guides: [
+          "guides/getting_started.md",
+          "guides/core_api.md",
+          "guides/llm_and_adapters.md",
+          "guides/optimization_workflow.md",
+          "guides/optimize_anything.md",
+          "guides/observability.md",
+          "guides/examples_and_livebooks.md"
         ],
         Examples: [
           "examples/README.md",
@@ -102,8 +111,11 @@ defmodule GepaEx.MixProject do
         ]
       ],
       groups_for_modules: [
-        "Public API": [
+        "Core API": [
           GEPA,
+          GEPA.DataLoader,
+          GEPA.Adapter,
+          GEPA.Result,
           GEPA.OptimizeAnything,
           GEPA.OptimizeAnything.Config,
           GEPA.OptimizeAnything.EngineConfig,
@@ -111,21 +123,20 @@ defmodule GepaEx.MixProject do
           GEPA.OptimizeAnything.MergeConfig,
           GEPA.OptimizeAnything.RefinerConfig,
           GEPA.OptimizeAnything.TrackingConfig,
-          GEPA.OptimizeAnything.OptimizationState,
-          GEPA.Result,
-          GEPA.DataLoader,
-          GEPA.Adapter
+          GEPA.OptimizeAnything.OptimizationState
         ],
-        "Engine & Workflow": [
+        "Optimization Engine": [
           GEPA.Engine,
           GEPA.State,
           GEPA.Proposer,
+          GEPA.Proposer.InstructionProposal,
           GEPA.Proposer.Merge,
           GEPA.Proposer.MergeUtils,
           GEPA.Proposer.Reflective,
           GEPA.CandidateProposal,
           GEPA.EvaluationBatch,
           GEPA.EvaluationCache,
+          GEPA.Progress,
           GEPA.OptimizeAnything.Adapter,
           GEPA.OptimizeAnything.EvaluatorWrapper,
           GEPA.OptimizeAnything.LogContext
@@ -146,7 +157,7 @@ defmodule GepaEx.MixProject do
           GEPA.Strategies.BatchSampler.Simple,
           GEPA.Strategies.BatchSampler.EpochShuffled
         ],
-        "Stop Conditions": [
+        "Control and Observability": [
           GEPA.StopCondition,
           GEPA.StopCondition.Composite,
           GEPA.StopCondition.Timeout,
@@ -157,7 +168,12 @@ defmodule GepaEx.MixProject do
           GEPA.StopCondition.MaxTrackedCandidates,
           GEPA.StopCondition.MaxCandidateProposals,
           GEPA.StopCondition.MaxReflectionCost,
-          GEPA.StopCondition.SignalStopper
+          GEPA.StopCondition.SignalStopper,
+          GEPA.Callbacks,
+          GEPA.Telemetry,
+          GEPA.Tracking,
+          GEPA.Tracking.NoOp,
+          GEPA.Tracking.InMemory
         ],
         "LLM & Adapters": [
           GEPA.LLM,
@@ -177,9 +193,6 @@ defmodule GepaEx.MixProject do
           GEPA.Utils,
           GEPA.Utils.Pareto,
           GEPA.CodeExecution,
-          GEPA.Tracking,
-          GEPA.Tracking.NoOp,
-          GEPA.Tracking.InMemory,
           GEPA.Types
         ],
         Application: [
@@ -238,7 +251,7 @@ defmodule GepaEx.MixProject do
       name: "gepa_ex",
       description: description(),
       files:
-        ~w(lib mix.exs README.md LICENSE docs examples livebooks gepa/LICENSE gepa/README.md assets),
+        ~w(lib mix.exs README.md LICENSE guides examples livebooks gepa/LICENSE gepa/README.md assets),
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url,

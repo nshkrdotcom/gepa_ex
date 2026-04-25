@@ -28,6 +28,7 @@ defmodule GEPA.Examples.LiveCLITest do
       assert help =~ "Default Models:"
       assert help =~ "gpt-5.4-mini"
       assert help =~ "gemini-3.1-flash-lite-preview"
+      assert help =~ "--adapter asm --provider codex          -> gpt-5.4-mini"
       assert help =~ "GEMINI_API_KEY"
       assert help =~ "--adapter asm --provider codex"
     end
@@ -204,6 +205,8 @@ defmodule GEPA.Examples.LiveCLITest do
 
       assert config.adapter == :asm
       assert config.provider == :codex
+      assert config.model == "gpt-5.4-mini"
+      assert config.client.model == "gpt-5.4-mini"
     end
 
     test "simple mode supplies built-in live demo data for optimization examples" do
@@ -215,6 +218,19 @@ defmodule GEPA.Examples.LiveCLITest do
       assert [%{input: _, answer: _} | _] = config.valset
       assert config.max_metric_calls == 2
       assert config.minibatch_size == 1
+    end
+
+    test "simple ASM Codex uses gpt-5.4-mini without --model" do
+      assert {:ok, config} =
+               LiveCLI.parse(
+                 ["--simple", "--adapter", "asm", "--provider", "codex"],
+                 no_env(@prompt_example)
+               )
+
+      assert config.adapter == :asm
+      assert config.provider == :codex
+      assert config.model == "gpt-5.4-mini"
+      assert config.client.model == "gpt-5.4-mini"
     end
   end
 

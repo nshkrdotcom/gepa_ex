@@ -35,6 +35,7 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
 
   @providers [:claude, :codex, :codex_exec, :gemini, :amp]
   @lanes [:auto, :core, :sdk]
+  @default_models %{codex: "gpt-5.4-mini"}
 
   @spec new(keyword()) :: {:ok, Client.t()} | {:error, term()}
   def new(opts \\ []) do
@@ -64,6 +65,11 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
   def build_state(opts) do
     with {:ok, provider} <- fetch_provider(opts),
          {:ok, lane} <- fetch_lane(opts) do
+      provider_opts =
+        opts
+        |> Keyword.get(:provider_opts, [])
+        |> put_default_model(provider)
+
       {:ok,
        %__MODULE__{
          provider: provider,
@@ -72,7 +78,7 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
          session_opts: Keyword.get(opts, :session_opts, []),
          query_opts: Keyword.get(opts, :query_opts, []),
          stream_opts: Keyword.get(opts, :stream_opts, []),
-         provider_opts: Keyword.get(opts, :provider_opts, []),
+         provider_opts: provider_opts,
          asm_module: Keyword.get(opts, :asm_module, ASM)
        }}
     end
@@ -244,18 +250,29 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
   defp text_chunk(_text), do: []
 
   defp common_opts(%__MODULE__{} = state, %Request{} = request) do
-    [
-      lane: state.lane,
-      model: request.model,
-      temperature: request.temperature,
-      max_tokens: request.max_tokens,
-      top_p: request.top_p,
-      stream_timeout_ms: request.timeout
-    ]
-    |> Keyword.merge(state.session_opts)
+    state.session_opts
     |> Keyword.merge(state.provider_opts)
+    |> Keyword.merge(
+      [
+        lane: state.lane,
+        model: request.model,
+        temperature: request.temperature,
+        max_tokens: request.max_tokens,
+        top_p: request.top_p,
+        stream_timeout_ms: request.timeout
+      ]
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    )
     |> Keyword.merge(request.provider_opts)
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp put_default_model(provider_opts, provider) do
+    case {Keyword.get(provider_opts, :model), Map.get(@default_models, provider)} do
+      {model, _default} when is_binary(model) and model != "" -> provider_opts
+      {_model, nil} -> provider_opts
+      {_model, default} -> Keyword.put(provider_opts, :model, default)
+    end
   end
 
   defp request_prompt!(%Request{} = request) do
