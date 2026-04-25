@@ -75,7 +75,14 @@ defmodule GEPA.Strategies.ComponentSelector.All do
   @spec select(GEPA.State.t(), non_neg_integer(), map()) ::
           {[String.t()], GEPA.State.t()}
   def select(state, _candidate_idx, candidate) do
-    # Return all component names
-    {Map.keys(candidate), state}
+    component_names =
+      state.list_of_named_predictors
+      |> Enum.filter(&Map.has_key?(candidate, &1))
+      |> case do
+        [] -> Map.keys(candidate) |> Enum.sort()
+        names -> names
+      end
+
+    {component_names, state}
   end
 end

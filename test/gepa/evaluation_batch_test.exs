@@ -22,6 +22,18 @@ defmodule GEPA.EvaluationBatchTest do
 
       assert batch.trajectories == [%{step: 1}]
     end
+
+    test "creates batch with objective scores and metric call count" do
+      batch = %GEPA.EvaluationBatch{
+        outputs: ["output1"],
+        scores: [0.8],
+        objective_scores: [%{"accuracy" => 0.8, "safety" => 1.0}],
+        num_metric_calls: 3
+      }
+
+      assert batch.objective_scores == [%{"accuracy" => 0.8, "safety" => 1.0}]
+      assert batch.num_metric_calls == 3
+    end
   end
 
   describe "valid?/1" do
@@ -58,6 +70,26 @@ defmodule GEPA.EvaluationBatchTest do
         outputs: ["a", "b"],
         scores: [0.1, 0.2],
         trajectories: [%{t: 1}]
+      }
+
+      refute GEPA.EvaluationBatch.valid?(batch)
+    end
+
+    test "returns true when objective scores match length" do
+      batch = %GEPA.EvaluationBatch{
+        outputs: ["a", "b"],
+        scores: [0.1, 0.2],
+        objective_scores: [%{"accuracy" => 0.1}, %{"accuracy" => 0.2}]
+      }
+
+      assert GEPA.EvaluationBatch.valid?(batch)
+    end
+
+    test "returns false when objective scores length doesn't match" do
+      batch = %GEPA.EvaluationBatch{
+        outputs: ["a", "b"],
+        scores: [0.1, 0.2],
+        objective_scores: [%{"accuracy" => 0.1}]
       }
 
       refute GEPA.EvaluationBatch.valid?(batch)

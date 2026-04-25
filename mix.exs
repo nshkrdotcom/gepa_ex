@@ -46,19 +46,22 @@ defmodule GepaEx.MixProject do
     [
       # Core dependencies
       {:jason, "~> 1.4"},
-      {:telemetry, "~> 1.2"},
+      {:telemetry, "~> 1.4"},
 
       # LLM integration
-      {:req_llm, "~> 1.0.0-rc.7"},
-      {:req, "~> 0.5.0"},
+      {:req_llm, "~> 1.10"},
+      {:agent_session_manager, path: "../agent_session_manager"},
+      {:req, "~> 0.5.17"},
 
       # Development and testing
-      {:mox, "~> 1.1", only: :test},
-      {:stream_data, "~> 1.1", only: :test},
-      {:excoveralls, "~> 0.18", only: :test},
-      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:mox, "~> 1.2", only: :test},
+      {:plug, "~> 1.19", only: :test},
+      {:stream_data, "~> 1.3", only: :test},
+      {:supertester, "~> 0.6.0", only: :test},
+      {:excoveralls, "~> 0.18.5", only: :test},
+      {:ex_doc, "~> 0.40.1", only: :dev, runtime: false},
+      {:credo, "~> 1.7.18", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -101,6 +104,14 @@ defmodule GepaEx.MixProject do
       groups_for_modules: [
         "Public API": [
           GEPA,
+          GEPA.OptimizeAnything,
+          GEPA.OptimizeAnything.Config,
+          GEPA.OptimizeAnything.EngineConfig,
+          GEPA.OptimizeAnything.ReflectionConfig,
+          GEPA.OptimizeAnything.MergeConfig,
+          GEPA.OptimizeAnything.RefinerConfig,
+          GEPA.OptimizeAnything.TrackingConfig,
+          GEPA.OptimizeAnything.OptimizationState,
           GEPA.Result,
           GEPA.DataLoader,
           GEPA.Adapter
@@ -113,12 +124,18 @@ defmodule GepaEx.MixProject do
           GEPA.Proposer.MergeUtils,
           GEPA.Proposer.Reflective,
           GEPA.CandidateProposal,
-          GEPA.EvaluationBatch
+          GEPA.EvaluationBatch,
+          GEPA.EvaluationCache,
+          GEPA.OptimizeAnything.Adapter,
+          GEPA.OptimizeAnything.EvaluatorWrapper,
+          GEPA.OptimizeAnything.LogContext
         ],
         Strategies: [
           GEPA.Strategies.CandidateSelector,
           GEPA.Strategies.CandidateSelector.Pareto,
           GEPA.Strategies.CandidateSelector.CurrentBest,
+          GEPA.Strategies.CandidateSelector.TopKPareto,
+          GEPA.Strategies.CandidateSelector.EpsilonGreedy,
           GEPA.Strategies.ComponentSelector,
           GEPA.Strategies.ComponentSelector.RoundRobin,
           GEPA.Strategies.ComponentSelector.All,
@@ -134,17 +151,35 @@ defmodule GepaEx.MixProject do
           GEPA.StopCondition.Composite,
           GEPA.StopCondition.Timeout,
           GEPA.StopCondition.NoImprovement,
-          GEPA.StopCondition.MaxCalls
+          GEPA.StopCondition.MaxCalls,
+          GEPA.StopCondition.FileStopper,
+          GEPA.StopCondition.ScoreThreshold,
+          GEPA.StopCondition.MaxTrackedCandidates,
+          GEPA.StopCondition.MaxCandidateProposals,
+          GEPA.StopCondition.MaxReflectionCost,
+          GEPA.StopCondition.SignalStopper
         ],
         "LLM & Adapters": [
           GEPA.LLM,
+          GEPA.LLM.Client,
+          GEPA.LLM.Request,
+          GEPA.LLM.Response,
+          GEPA.LLM.Capabilities,
+          GEPA.LLM.Tool,
+          GEPA.LLM.Adapters.ReqLLM,
+          GEPA.LLM.Adapters.AgentSessionManager,
           GEPA.LLM.ReqLLM,
           GEPA.LLM.Mock,
-          GEPA.Adapters.Basic
+          GEPA.Adapters.Basic,
+          GEPA.Adapters.Default
         ],
         Utilities: [
           GEPA.Utils,
           GEPA.Utils.Pareto,
+          GEPA.CodeExecution,
+          GEPA.Tracking,
+          GEPA.Tracking.NoOp,
+          GEPA.Tracking.InMemory,
           GEPA.Types
         ],
         Application: [

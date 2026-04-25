@@ -1,86 +1,65 @@
 #!/usr/bin/env elixir
 
-# GEPA Quick Start Example
-# ========================
-#
-# This is the simplest possible GEPA optimization example.
-# It demonstrates the core concepts in just a few lines of code.
-#
-# ## What this does:
-# - Optimizes a simple Q&A system
-# - Uses mock LLM (no API keys needed!)
-# - Runs for 10 iterations
-# - Shows best result
-#
-# ## To run:
-#   mix run examples/01_quick_start.exs
-#
-# ## With real LLM (requires API key):
-#   OPENAI_API_KEY=sk-... mix run examples/01_quick_start.exs
-#   # or
-#   GEMINI_API_KEY=... mix run examples/01_quick_start.exs
+Code.require_file("support/live_cli.exs", __DIR__)
 
-# Mix.install([{:gepa_ex, path: "."}])
-# Note: Mix.install is for standalone scripts. When running from project root,
-# it's not needed as dependencies are already loaded.
-
-# Training data: simple math questions
-trainset = [
-  %{input: "What is 2+2?", answer: "4"},
-  %{input: "What is 5+3?", answer: "8"},
-  %{input: "What is 10-7?", answer: "3"}
+example = [
+  name: "GEPA Quick Start Live Example",
+  script: "examples/01_quick_start.exs",
+  summary: "Runs a small live GEPA optimization over your JSONL question/answer data.",
+  required: [:train_jsonl, :val_jsonl]
 ]
 
-# Validation data: test the optimized system
-valset = [
-  %{input: "What is 6+4?", answer: "10"}
-]
+config = LiveCLI.parse_or_halt(System.argv(), example)
+estimated_calls = max(config.max_metric_calls * 2, 1)
 
-# Initial seed prompt (intentionally basic)
+IO.puts(
+  LiveCLI.cost_warning(
+    example[:name],
+    config.adapter,
+    config.provider,
+    estimated_calls
+  )
+)
+
 seed_candidate = %{
-  "instruction" => "You are a helpful assistant."
+  "instruction" => "Answer the user's question accurately and concisely."
 }
 
+adapter = GEPA.Adapters.Basic.new(llm: config.client)
+
 IO.puts("""
-🚀 GEPA Quick Start Example
-===========================
+GEPA Quick Start Live Example
+=============================
 
-Training set: #{length(trainset)} examples
-Validation set: #{length(valset)} examples
-Starting instruction: "#{seed_candidate["instruction"]}"
+Adapter/provider: #{config.adapter}/#{config.provider}
+Model: #{config.model || "(provider default)"}
+Training rows: #{length(config.trainset)}
+Validation rows: #{length(config.valset)}
+Max metric calls: #{config.max_metric_calls}
+Reflection minibatch size: #{config.minibatch_size}
 """)
-
-# Create adapter
-adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
-
-# Run optimization
-IO.puts("\n⚙️  Running optimization...")
 
 {:ok, result} =
   GEPA.optimize(
     seed_candidate: seed_candidate,
-    trainset: trainset,
-    valset: valset,
+    trainset: config.trainset,
+    valset: config.valset,
     adapter: adapter,
-    max_metric_calls: 10
+    max_metric_calls: config.max_metric_calls,
+    reflection_llm: config.client,
+    reflection_minibatch_size: config.minibatch_size,
+    structured_output: config.structured_output?
   )
 
-# Show results
 IO.puts("""
 
-✅ Optimization Complete!
-========================
+Optimization Complete
+=====================
 
-Best score: #{GEPA.Result.best_score(result)}
+Best score: #{Float.round(GEPA.Result.best_score(result), 4)}
 Iterations: #{result.i}
 Total evaluations: #{result.total_num_evals}
 
-Optimized instruction:
-#{String.slice(GEPA.Result.best_candidate(result)["instruction"], 0, 200)}...
-
-💡 Next steps:
-- Try with real LLM: Set OPENAI_API_KEY or GEMINI_API_KEY
-- Increase iterations: Change max_metric_calls to 50
-- Use your own data: Replace trainset and valset
-- See more examples: examples/02_math_problems.exs
+Best instruction:
+#{GEPA.Result.best_candidate(result)["instruction"]}
 """)

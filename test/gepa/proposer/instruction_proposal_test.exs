@@ -1,8 +1,8 @@
 defmodule GEPA.Proposer.InstructionProposalTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
-  alias GEPA.Proposer.InstructionProposal
   alias GEPA.LLM.Mock
+  alias GEPA.Proposer.InstructionProposal
 
   describe "new/1" do
     test "creates with default template" do
@@ -11,9 +11,8 @@ defmodule GEPA.Proposer.InstructionProposalTest do
 
       assert proposal.llm == llm
       assert proposal.template != nil
-      assert String.contains?(proposal.template, "{component_name}")
-      assert String.contains?(proposal.template, "{current_instruction}")
-      assert String.contains?(proposal.template, "{reflective_dataset}")
+      assert String.contains?(proposal.template, "<curr_param>")
+      assert String.contains?(proposal.template, "<side_info>")
     end
 
     test "accepts custom template with required placeholders" do
@@ -117,10 +116,11 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       assert result == "trimmed response"
     end
 
-    test "substitutes component_name in template" do
+    test "default template does not require component name" do
       captured_prompt =
         capture_prompt(fn prompt ->
-          assert String.contains?(prompt, "my_component")
+          refute String.contains?(prompt, "my_component")
+          assert String.contains?(prompt, "instruction")
           "response"
         end)
 
@@ -190,6 +190,91 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
 
       assert result == "Extracted content"
+    end
+
+    test "default extractor strips language specifier from fenced instruction" do
+      llm =
+        Mock.new(
+          responses: [
+            """
+            Here's the improved instruction:
+            ```markdown
+            This is the actual instruction content.
+            It should not include the word 'markdown'.
+            ```
+            """
+          ]
+        )
+
+      proposal = InstructionProposal.new(llm: llm)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
+
+      assert result ==
+               "This is the actual instruction content.\nIt should not include the word 'markdown'."
+    end
+
+    test "default extractor uses outermost fenced block" do
+      llm =
+        Mock.new(
+          responses: [
+            """
+            Begin text
+            ```plaintext
+            Begin instructions
+
+            ```
+            Internal block 1
+            ```
+
+            ```python
+            Internal block 2
+            ```
+
+            End instructions
+            ```
+            End text
+            """
+          ]
+        )
+
+      proposal = InstructionProposal.new(llm: llm)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
+
+      assert result ==
+               "Begin instructions\n\n```\nInternal block 1\n```\n\n```python\nInternal block 2\n```\n\nEnd instructions"
+    end
+
+    test "default extractor handles unmatched opening or closing fences" do
+      opening = Mock.new(responses: ["```text\nHere are the instructions."])
+      closing = Mock.new(responses: ["Here are the instructions.\n```"])
+
+      {:ok, opening_result} =
+        opening
+        |> then(&InstructionProposal.new(llm: &1))
+        |> InstructionProposal.propose("comp", "instruction", [])
+
+      {:ok, closing_result} =
+        closing
+        |> then(&InstructionProposal.new(llm: &1))
+        |> InstructionProposal.propose("comp", "instruction", [])
+
+      assert opening_result == "Here are the instructions."
+      assert closing_result == "Here are the instructions."
+    end
+
+    test "default extractor returns trimmed raw text when no complete fence exists" do
+      llm =
+        Mock.new(
+          responses: ["\n Here are some backticks:\n```\nI hope you didn't get confused. "]
+        )
+
+      proposal = InstructionProposal.new(llm: llm)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "instruction", [])
+
+      assert result == "Here are some backticks:\n```\nI hope you didn't get confused."
     end
 
     test "handles empty dataset" do
@@ -351,9 +436,77 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       template = InstructionProposal.default_template()
 
       assert is_binary(template)
-      assert String.contains?(template, "{component_name}")
-      assert String.contains?(template, "{current_instruction}")
-      assert String.contains?(template, "{reflective_dataset}")
+      assert String.contains?(template, "<curr_param>")
+      assert String.contains?(template, "<side_info>")
+    end
+  end
+
+  describe "new/1 — structured_output option" do
+    test "defaults structured_output to false" do
+      llm = Mock.new(responses: ["improved"])
+      proposal = InstructionProposal.new(llm: llm)
+
+      assert proposal.structured_output == false
+    end
+
+    test "accepts structured_output: true" do
+      llm = Mock.new(responses: ["improved"])
+      proposal = InstructionProposal.new(llm: llm, structured_output: true)
+
+      assert proposal.structured_output == true
+    end
+
+    test "accepts structured_output: false explicitly" do
+      llm = Mock.new(responses: ["improved"])
+      proposal = InstructionProposal.new(llm: llm, structured_output: false)
+
+      assert proposal.structured_output == false
+    end
+  end
+
+  describe "propose/4 — structured_output: true" do
+    test "uses complete_structured path and extracts instruction key" do
+      # Mock returns JSON with instruction key; fallback wraps it correctly
+      json_response = Jason.encode!(%{"instruction" => "structured result"})
+      llm = Mock.new(responses: [json_response])
+
+      proposal = InstructionProposal.new(llm: llm, structured_output: true)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "original", [])
+
+      assert result == "structured result"
+    end
+
+    test "extracts instruction from plain text via fallback" do
+      llm = Mock.new(responses: ["plain improved instruction"])
+      proposal = InstructionProposal.new(llm: llm, structured_output: true)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "original", [])
+
+      assert result == "plain improved instruction"
+    end
+
+    test "returns empty string when structured result has no instruction key" do
+      json_response = Jason.encode!(%{"other_key" => "value"})
+      llm = Mock.new(responses: [json_response])
+
+      proposal = InstructionProposal.new(llm: llm, structured_output: true)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "original", [])
+
+      # Map has no "instruction" key → extract_structured_instruction returns ""
+      assert result == ""
+    end
+  end
+
+  describe "propose/4 — structured_output: false (default text path unchanged)" do
+    test "still uses the text path when structured_output is false" do
+      llm = Mock.new(responses: ["  text response  "])
+      proposal = InstructionProposal.new(llm: llm, structured_output: false)
+
+      {:ok, result} = InstructionProposal.propose(proposal, "comp", "original", [])
+
+      assert result == "text response"
     end
   end
 

@@ -44,6 +44,56 @@ defmodule GEPA.StopCondition do
   @callback should_stop?(t(), GEPA.State.t()) :: boolean()
 
   @type t :: term()
+
+  @doc """
+  Evaluate a stop condition, callable, or module against the current state.
+  """
+  @spec should_stop?(term(), GEPA.State.t()) :: boolean()
+  def should_stop?(condition, state) when is_function(condition, 1), do: condition.(state)
+
+  def should_stop?(condition, state) when is_map(condition) do
+    module = condition.__struct__
+
+    if function_exported?(module, :should_stop?, 2) do
+      module.should_stop?(condition, state)
+    else
+      false
+    end
+  end
+
+  def should_stop?(module, state) when is_atom(module) do
+    cond do
+      Code.ensure_loaded?(module) and function_exported?(module, :should_stop?, 1) ->
+        module.should_stop?(state)
+
+      Code.ensure_loaded?(module) and function_exported?(module, :should_stop?, 2) ->
+        module.should_stop?(module, state)
+
+      true ->
+        false
+    end
+  end
+
+  def should_stop?(_condition, _state), do: false
+
+  @doc """
+  Update a stateful stop condition after an iteration.
+
+  Stateless conditions are returned unchanged. Composite conditions update each
+  nested condition recursively.
+  """
+  @spec update(term(), GEPA.State.t()) :: term()
+  def update(condition, state) when is_map(condition) do
+    module = condition.__struct__
+
+    if function_exported?(module, :update, 2) do
+      module.update(condition, state)
+    else
+      condition
+    end
+  end
+
+  def update(condition, _state), do: condition
 end
 
 defmodule GEPA.StopCondition.Composite do
@@ -86,18 +136,20 @@ defmodule GEPA.StopCondition.Composite do
   @impl true
   @spec should_stop?(t(), GEPA.State.t()) :: boolean()
   def should_stop?(%__MODULE__{conditions: conditions, mode: :any}, state) do
-    Enum.any?(conditions, fn condition ->
-      module = condition.__struct__
-      module.should_stop?(condition, state)
-    end)
+    Enum.any?(conditions, &GEPA.StopCondition.should_stop?(&1, state))
   end
 
   @impl true
   def should_stop?(%__MODULE__{conditions: conditions, mode: :all}, state) do
-    Enum.all?(conditions, fn condition ->
-      module = condition.__struct__
-      module.should_stop?(condition, state)
-    end)
+    Enum.all?(conditions, &GEPA.StopCondition.should_stop?(&1, state))
+  end
+
+  @spec update(t(), GEPA.State.t()) :: t()
+  def update(%__MODULE__{} = condition, state) do
+    %{
+      condition
+      | conditions: Enum.map(condition.conditions, &GEPA.StopCondition.update(&1, state))
+    }
   end
 end
 
@@ -287,4 +339,168 @@ defmodule GEPA.StopCondition.MaxCalls do
   def should_stop?(%__MODULE__{max_calls: max_calls}, %GEPA.State{total_num_evals: total}) do
     total >= max_calls
   end
+end
+
+defmodule GEPA.StopCondition.ScoreThreshold do
+  @moduledoc """
+  Stops once the best aggregate validation score reaches a threshold.
+  """
+
+  @behaviour GEPA.StopCondition
+
+  defstruct [:threshold]
+
+  @type t :: %__MODULE__{threshold: number()}
+
+  @spec new(number()) :: t()
+  def new(threshold) when is_number(threshold), do: %__MODULE__{threshold: threshold}
+
+  @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
+  def should_stop?(%__MODULE__{threshold: threshold}, state) do
+    best_score(state) >= threshold
+  rescue
+    _ -> false
+  end
+
+  defp best_score(state) do
+    state.prog_candidate_val_subscores
+    |> Enum.map(fn
+      scores when map_size(scores) == 0 -> 0.0
+      scores -> Enum.sum(Map.values(scores)) / map_size(scores)
+    end)
+    |> Enum.max(fn -> 0.0 end)
+  end
+end
+
+defmodule GEPA.StopCondition.MaxTrackedCandidates do
+  @moduledoc """
+  Stops after a maximum number of tracked candidate programs.
+  """
+
+  @behaviour GEPA.StopCondition
+
+  defstruct [:max_tracked_candidates]
+
+  @type t :: %__MODULE__{max_tracked_candidates: pos_integer()}
+
+  @spec new(pos_integer()) :: t()
+  def new(max_tracked_candidates)
+      when is_integer(max_tracked_candidates) and max_tracked_candidates > 0 do
+    %__MODULE__{max_tracked_candidates: max_tracked_candidates}
+  end
+
+  @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
+  def should_stop?(%__MODULE__{max_tracked_candidates: max}, state) do
+    length(state.program_candidates) >= max
+  end
+end
+
+defmodule GEPA.StopCondition.SignalStopper do
+  @moduledoc """
+  BEAM-friendly signal/interrupt stopper.
+
+  Elixir cannot portably install per-run OS signal handlers without affecting
+  the VM. This stopper exposes `request_stop/1` for supervisors, Livebooks, or
+  operator code to trip the condition explicitly.
+  """
+
+  @behaviour GEPA.StopCondition
+
+  defstruct stop_requested: false, signals: [:sigint, :sigterm]
+
+  @type t :: %__MODULE__{stop_requested: boolean(), signals: [atom()]}
+
+  @spec new(keyword()) :: t()
+  def new(opts \\ []) do
+    %__MODULE__{signals: Keyword.get(opts, :signals, [:sigint, :sigterm])}
+  end
+
+  @spec request_stop(t()) :: t()
+  def request_stop(%__MODULE__{} = stopper), do: %{stopper | stop_requested: true}
+
+  @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
+  def should_stop?(%__MODULE__{stop_requested: stop_requested}, _state), do: stop_requested
+end
+
+defmodule GEPA.StopCondition.FileStopper do
+  @moduledoc """
+  Stops optimization when a configured file exists.
+  """
+
+  @behaviour GEPA.StopCondition
+
+  defstruct [:path]
+
+  @type t :: %__MODULE__{path: Path.t()}
+
+  @spec new(Path.t()) :: t()
+  def new(path) when is_binary(path), do: %__MODULE__{path: path}
+
+  @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
+  def should_stop?(%__MODULE__{path: path}, _state), do: File.exists?(path)
+
+  @spec remove_stop_file(t()) :: :ok | {:error, File.posix()}
+  def remove_stop_file(%__MODULE__{path: path}), do: File.rm(path)
+end
+
+defmodule GEPA.StopCondition.MaxCandidateProposals do
+  @moduledoc """
+  Stops after a maximum number of proposal iterations.
+  """
+
+  @behaviour GEPA.StopCondition
+
+  defstruct [:max_proposals]
+
+  @type t :: %__MODULE__{max_proposals: pos_integer()}
+
+  @spec new(pos_integer()) :: t()
+  def new(max_proposals) when is_integer(max_proposals) and max_proposals > 0 do
+    %__MODULE__{max_proposals: max_proposals}
+  end
+
+  @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
+  def should_stop?(%__MODULE__{max_proposals: max_proposals}, %GEPA.State{i: iteration}) do
+    iteration >= max_proposals - 1
+  end
+end
+
+defmodule GEPA.StopCondition.MaxReflectionCost do
+  @moduledoc """
+  Stops when a reflection LLM's reported cumulative cost reaches a budget.
+  """
+
+  @behaviour GEPA.StopCondition
+
+  defstruct [:max_cost, :reflection_lm]
+
+  @type t :: %__MODULE__{max_cost: number(), reflection_lm: term()}
+
+  @spec new(number(), term()) :: t()
+  def new(max_cost, reflection_lm) when is_number(max_cost) and max_cost >= 0 do
+    %__MODULE__{max_cost: max_cost, reflection_lm: reflection_lm}
+  end
+
+  @impl true
+  @spec should_stop?(t(), GEPA.State.t()) :: boolean()
+  def should_stop?(%__MODULE__{max_cost: max_cost, reflection_lm: reflection_lm}, _state) do
+    reflection_cost(reflection_lm) >= max_cost
+  end
+
+  defp reflection_cost(%{total_cost: total_cost}) when is_number(total_cost), do: total_cost
+
+  defp reflection_cost(reflection_lm) when is_atom(reflection_lm) do
+    if Code.ensure_loaded?(reflection_lm) and function_exported?(reflection_lm, :total_cost, 0) do
+      reflection_lm.total_cost()
+    else
+      0.0
+    end
+  end
+
+  defp reflection_cost(_reflection_lm), do: 0.0
 end

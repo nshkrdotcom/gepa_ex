@@ -100,12 +100,10 @@ defmodule GEPA.Strategies.CandidateSelector.EpsilonGreedy do
   end
 
   defp normalize_probability(value, field) when is_number(value) do
-    cond do
-      value < 0.0 or value > 1.0 ->
-        raise ArgumentError, "#{field} must be between 0.0 and 1.0, got: #{inspect(value)}"
-
-      true ->
-        value * 1.0
+    if value < 0.0 or value > 1.0 do
+      raise ArgumentError, "#{field} must be between 0.0 and 1.0, got: #{inspect(value)}"
+    else
+      value * 1.0
     end
   end
 

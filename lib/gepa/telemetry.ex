@@ -103,6 +103,8 @@ defmodule GEPA.Telemetry do
           [term()] | nil,
           integer()
         ) :: :ok
+  # Telemetry event payload is intentionally explicit to keep callsites clear.
+  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   def emit_iteration_stop(
         state,
         iteration,

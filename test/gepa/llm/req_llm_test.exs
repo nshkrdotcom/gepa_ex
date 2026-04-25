@@ -1,6 +1,8 @@
 defmodule GEPA.LLM.ReqLLMTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
+  import ExUnit.CaptureIO
+
   alias GEPA.LLM.ReqLLM
 
   describe "new/1" do
@@ -8,7 +10,7 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm = ReqLLM.new(provider: :openai)
 
       assert llm.provider == :openai
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
       assert llm.temperature == 0.7
       assert llm.max_tokens == 2000
       assert llm.timeout == 60_000
@@ -18,7 +20,16 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm = ReqLLM.new(provider: :gemini)
 
       assert llm.provider == :gemini
-      assert llm.model == "gemini-flash-lite-latest"
+      assert llm.model == "gemini-3.1-flash-lite-preview"
+      assert llm.temperature == 0.7
+      assert llm.max_tokens == 2000
+    end
+
+    test "creates Anthropic instance with defaults" do
+      llm = ReqLLM.new(provider: :anthropic)
+
+      assert llm.provider == :anthropic
+      assert llm.model == "claude-haiku-4-5"
       assert llm.temperature == 0.7
       assert llm.max_tokens == 2000
     end
@@ -41,25 +52,19 @@ defmodule GEPA.LLM.ReqLLMTest do
       assert llm.timeout == 30_000
     end
 
-    test "picks up API key from environment for OpenAI" do
-      System.put_env("OPENAI_API_KEY", "test-key-123")
+    test "does not infer API key for OpenAI" do
       llm = ReqLLM.new(provider: :openai)
-      assert llm.api_key == "test-key-123"
-      System.delete_env("OPENAI_API_KEY")
+      assert llm.api_key == nil
     end
 
-    test "picks up API key from environment for Gemini" do
-      System.put_env("GEMINI_API_KEY", "test-gemini-key")
+    test "does not infer API key for Gemini" do
       llm = ReqLLM.new(provider: :gemini)
-      assert llm.api_key == "test-gemini-key"
-      System.delete_env("GEMINI_API_KEY")
+      assert llm.api_key == nil
     end
 
-    test "explicit API key takes precedence over environment" do
-      System.put_env("OPENAI_API_KEY", "env-key")
+    test "stores explicit API key" do
       llm = ReqLLM.new(provider: :openai, api_key: "explicit-key")
       assert llm.api_key == "explicit-key"
-      System.delete_env("OPENAI_API_KEY")
     end
 
     test "raises on invalid provider" do
@@ -80,27 +85,44 @@ defmodule GEPA.LLM.ReqLLMTest do
       llm =
         ReqLLM.new(
           provider: :openai,
-          model: "gpt-4o-mini",
+          model: "gpt-5.4-mini",
           temperature: 0.7,
           api_key: "default-key"
         )
 
       # Test that complete would merge options correctly
       # We can't actually call complete without mocking HTTP, but we can test the struct
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
       assert llm.temperature == 0.7
     end
   end
 
   describe "model defaults" do
-    test "OpenAI default model is gpt-4o-mini" do
+    test "OpenAI default model is gpt-5.4-mini" do
       llm = ReqLLM.new(provider: :openai)
-      assert llm.model == "gpt-4o-mini"
+      assert llm.model == "gpt-5.4-mini"
     end
 
-    test "Gemini default model is gemini-flash-lite-latest" do
+    test "Gemini default model is gemini-3.1-flash-lite-preview" do
       llm = ReqLLM.new(provider: :gemini)
-      assert llm.model == "gemini-flash-lite-latest"
+      assert llm.model == "gemini-3.1-flash-lite-preview"
+    end
+
+    test "Gemini default model resolves through ReqLLM catalog without fallback warning" do
+      llm = ReqLLM.new(provider: :gemini)
+
+      warning =
+        capture_io(:stderr, fn ->
+          assert {:ok, model} = Elixir.ReqLLM.model("google:" <> llm.model)
+          assert model.id == "gemini-3.1-flash-lite-preview"
+        end)
+
+      assert warning == ""
+    end
+
+    test "Anthropic default model is claude-haiku-4-5" do
+      llm = ReqLLM.new(provider: :anthropic)
+      assert llm.model == "claude-haiku-4-5"
     end
 
     test "can override default models" do
@@ -109,6 +131,9 @@ defmodule GEPA.LLM.ReqLLMTest do
 
       llm2 = ReqLLM.new(provider: :gemini, model: "gemini-1.5-pro")
       assert llm2.model == "gemini-1.5-pro"
+
+      llm3 = ReqLLM.new(provider: :anthropic, model: "claude-sonnet-4-5")
+      assert llm3.model == "claude-sonnet-4-5"
     end
   end
 
@@ -171,29 +196,6 @@ defmodule GEPA.LLM.ReqLLMTest do
     end
   end
 
-  describe "environment variable fallbacks" do
-    test "GOOGLE_API_KEY works as fallback for Gemini" do
-      System.put_env("GOOGLE_API_KEY", "google-key")
-      System.delete_env("GEMINI_API_KEY")
-
-      llm = ReqLLM.new(provider: :gemini)
-      assert llm.api_key == "google-key"
-
-      System.delete_env("GOOGLE_API_KEY")
-    end
-
-    test "GEMINI_API_KEY takes precedence over GOOGLE_API_KEY" do
-      System.put_env("GEMINI_API_KEY", "gemini-key")
-      System.put_env("GOOGLE_API_KEY", "google-key")
-
-      llm = ReqLLM.new(provider: :gemini)
-      assert llm.api_key == "gemini-key"
-
-      System.delete_env("GEMINI_API_KEY")
-      System.delete_env("GOOGLE_API_KEY")
-    end
-  end
-
   describe "struct creation and validation" do
     test "creates valid struct with all fields" do
       llm = ReqLLM.new(provider: :openai, api_key: "test")
@@ -207,10 +209,6 @@ defmodule GEPA.LLM.ReqLLMTest do
     end
 
     test "handles missing API key gracefully (returns nil)" do
-      System.delete_env("OPENAI_API_KEY")
-      System.delete_env("GEMINI_API_KEY")
-      System.delete_env("GOOGLE_API_KEY")
-
       llm = ReqLLM.new(provider: :openai)
       assert llm.api_key == nil
 
@@ -224,10 +222,11 @@ defmodule GEPA.LLM.ReqLLMTest do
       # Valid providers
       assert %ReqLLM{provider: :openai} = ReqLLM.new(provider: :openai)
       assert %ReqLLM{provider: :gemini} = ReqLLM.new(provider: :gemini)
+      assert %ReqLLM{provider: :anthropic} = ReqLLM.new(provider: :anthropic)
 
       # Invalid providers raise
       assert_raise ArgumentError, fn ->
-        ReqLLM.new(provider: :anthropic)
+        ReqLLM.new(provider: :invalid)
       end
     end
   end

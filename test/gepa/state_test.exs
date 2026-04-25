@@ -19,8 +19,26 @@ defmodule GEPA.StateTest do
       assert state.program_candidates == [seed_candidate]
       assert state.parent_program_for_candidate == [[nil]]
       assert state.list_of_named_predictors == ["instruction"]
-      assert state.i == 0
+      assert state.i == -1
+      assert state.num_full_ds_evals == 1
       assert state.total_num_evals == 2
+      assert state.num_metric_calls_by_discovery == [0]
+    end
+
+    test "uses explicit seed metric call metadata" do
+      seed_candidate = %{"instruction" => "You are helpful"}
+
+      eval_batch = %GEPA.EvaluationBatch{
+        outputs: ["out1", "out2"],
+        scores: [0.8, 0.9],
+        num_metric_calls: 7
+      }
+
+      state = State.new(seed_candidate, eval_batch, [0, 1])
+
+      assert state.total_num_evals == 7
+      assert state.num_full_ds_evals == 1
+      assert state.num_metric_calls_by_discovery == [0]
     end
 
     test "initializes Pareto fronts with seed scores" do
@@ -47,6 +65,43 @@ defmodule GEPA.StateTest do
 
       assert Enum.sort(state.list_of_named_predictors) == ["comp1", "comp2"]
       assert length(state.named_predictor_id_to_update_next_for_program_candidate) == 1
+    end
+
+    test "tracks objective-score frontiers when objective scores are present" do
+      seed = %{"instruction" => "seed"}
+
+      eval_batch = %GEPA.EvaluationBatch{
+        outputs: ["a", "b"],
+        scores: [0.7, 0.9],
+        objective_scores: [
+          %{"accuracy" => 0.7, "safety" => 1.0},
+          %{"accuracy" => 0.9, "safety" => 0.5}
+        ]
+      }
+
+      state = State.new(seed, eval_batch, [10, 20])
+
+      assert state.prog_candidate_objective_scores == [%{"accuracy" => 0.8, "safety" => 0.75}]
+      assert state.objective_pareto_front == %{"accuracy" => 0.8, "safety" => 0.75}
+      assert state.program_at_pareto_front_objectives["accuracy"] == MapSet.new([0])
+    end
+
+    test "can track best outputs per validation id" do
+      seed = %{"instruction" => "seed"}
+      eval_batch = %GEPA.EvaluationBatch{outputs: ["a", "b"], scores: [0.7, 0.9]}
+
+      state = State.new(seed, eval_batch, [10, 20], track_best_outputs: true)
+
+      assert state.best_outputs_valset == %{10 => [{0, "a"}], 20 => [{0, "b"}]}
+    end
+
+    test "rejects objective frontier modes without objective scores" do
+      seed = %{"instruction" => "seed"}
+      eval_batch = %GEPA.EvaluationBatch{outputs: ["a"], scores: [0.7]}
+
+      assert_raise ArgumentError, ~r/frontier_type=:objective requires objective_scores/, fn ->
+        State.new(seed, eval_batch, [10], frontier_type: :objective)
+      end
     end
   end
 
@@ -102,8 +157,41 @@ defmodule GEPA.StateTest do
       {new_state, _} =
         State.add_program(state, %{"instruction" => "new"}, [0], %{0 => 0.8, 1 => 0.9})
 
-      assert new_state.num_full_ds_evals == 1
+      assert new_state.num_full_ds_evals == 2
       assert new_state.total_num_evals == state.total_num_evals + 2
+      assert new_state.num_metric_calls_by_discovery == [0, state.total_num_evals]
+    end
+
+    test "updates objective frontiers and best outputs for new programs" do
+      state =
+        State.new(
+          %{"instruction" => "seed"},
+          %GEPA.EvaluationBatch{
+            outputs: ["seed-a", "seed-b"],
+            scores: [0.7, 0.8],
+            objective_scores: [%{"accuracy" => 0.7}, %{"accuracy" => 0.8}]
+          },
+          [0, 1],
+          track_best_outputs: true
+        )
+
+      {new_state, new_idx} =
+        State.add_program(
+          state,
+          %{"instruction" => "new"},
+          [0],
+          %{0 => 0.9, 1 => 0.6},
+          outputs_by_val_id: %{0 => "new-a", 1 => "new-b"},
+          objective_scores_by_val_id: %{0 => %{"accuracy" => 0.9}, 1 => %{"accuracy" => 0.6}},
+          metric_calls: 1
+        )
+
+      assert new_idx == 1
+      assert new_state.best_outputs_valset[0] == [{1, "new-a"}]
+      assert new_state.best_outputs_valset[1] == [{0, "seed-b"}]
+      assert new_state.objective_pareto_front == %{"accuracy" => 0.75}
+      assert new_state.program_at_pareto_front_objectives["accuracy"] == MapSet.new([0, 1])
+      assert new_state.total_num_evals == state.total_num_evals + 1
     end
   end
 

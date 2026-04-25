@@ -44,6 +44,8 @@ defmodule GEPA.Utils do
           dominating_programs :: MapSet.t(non_neg_integer()),
           pareto_front :: %{term() => MapSet.t(non_neg_integer())}
         ) :: boolean()
+  # Public API kept for compatibility with the original port and tests.
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
   def is_dominated?(program, dominating_programs, pareto_front) do
     # Find all fronts this program appears on
     program_fronts =

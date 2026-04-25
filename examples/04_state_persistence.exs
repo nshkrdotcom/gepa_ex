@@ -1,155 +1,84 @@
 #!/usr/bin/env elixir
 
-# GEPA State Persistence Example
-# ===============================
-#
-# This example demonstrates how to:
-# - Save optimization state to disk
-# - Resume interrupted optimizations
-# - Inspect saved results
-# - Gracefully stop long-running optimizations
-#
-# ## To run:
-#   mix run examples/04_state_persistence.exs
-#
-# ## To resume an optimization:
-#   # The script will automatically resume if state exists
-#   mix run examples/04_state_persistence.exs
+Code.require_file("support/live_cli.exs", __DIR__)
 
-# Mix.install([{:gepa_ex, path: "."}])
-
-# Configuration
-run_dir = "./tmp/gepa_example_run"
-max_iterations_per_run = 5
-total_desired_iterations = 15
-
-# Training data
-trainset = [
-  %{input: "What is the capital of France?", answer: "Paris"},
-  %{input: "What is 10 * 12?", answer: "120"},
-  %{input: "Who wrote Hamlet?", answer: "Shakespeare"},
-  %{input: "What is the largest ocean?", answer: "Pacific"},
-  %{input: "What year did World War II end?", answer: "1945"}
+example = [
+  name: "GEPA State Persistence Live Example",
+  script: "examples/04_state_persistence.exs",
+  summary: "Runs or resumes a live GEPA optimization with checkpoint persistence.",
+  required: [:train_jsonl, :val_jsonl, :run_dir]
 ]
 
-valset = [
-  %{input: "What is the capital of Japan?", answer: "Tokyo"},
-  %{input: "What is 7 * 8?", answer: "56"}
-]
+config = LiveCLI.parse_or_halt(System.argv(), example)
+estimated_calls = max(config.max_metric_calls * 2, 1)
+
+IO.puts(
+  LiveCLI.cost_warning(
+    example[:name],
+    config.adapter,
+    config.provider,
+    estimated_calls
+  )
+)
 
 seed_candidate = %{
-  "instruction" => "Answer the question accurately and concisely."
+  "instruction" => "Answer the user's question accurately and cite the key fact in the answer."
 }
 
-IO.puts("""
-💾 GEPA State Persistence Example
-=================================
+state_file = Path.join(config.run_dir, "gepa_state.etf")
 
-Run directory: #{run_dir}
-Max iterations per run: #{max_iterations_per_run}
-Total desired: #{total_desired_iterations}
-""")
-
-# Check if previous state exists
-state_file = Path.join(run_dir, "state.etf")
-previous_state_exists = File.exists?(state_file)
-
-if previous_state_exists do
-  # Load previous state to check progress
+if File.exists?(state_file) do
   previous_state = File.read!(state_file) |> :erlang.binary_to_term()
+  previous_result = GEPA.Result.from_state(previous_state)
 
   IO.puts("""
-
-  ♻️  Found previous optimization state!
+  Existing checkpoint found.
   Previous iterations: #{previous_state.i}
-  Previous best score: #{Float.round(GEPA.Result.best_score(previous_state), 3)}
-
-  Resuming optimization...
+  Previous best score: #{Float.round(GEPA.Result.best_score(previous_result), 4)}
   """)
 else
-  IO.puts("\n🆕 Starting new optimization...\n")
+  IO.puts("No existing checkpoint found. Starting a new live optimization.")
 end
 
-# Create adapter
-adapter = GEPA.Adapters.Basic.new(llm: GEPA.LLM.Mock.new())
+adapter = GEPA.Adapters.Basic.new(llm: config.client)
 
-# Run optimization with state persistence
+IO.puts("""
+GEPA State Persistence Live Example
+===================================
+
+Adapter/provider: #{config.adapter}/#{config.provider}
+Model: #{config.model || "(provider default)"}
+Run directory: #{config.run_dir}
+Training rows: #{length(config.trainset)}
+Validation rows: #{length(config.valset)}
+Max metric calls this run: #{config.max_metric_calls}
+Reflection minibatch size: #{config.minibatch_size}
+""")
+
 {:ok, result} =
   GEPA.optimize(
     seed_candidate: seed_candidate,
-    trainset: trainset,
-    valset: valset,
+    trainset: config.trainset,
+    valset: config.valset,
     adapter: adapter,
-    # 🔑 This enables state persistence!
-    run_dir: run_dir,
-    max_metric_calls: max_iterations_per_run
+    run_dir: config.run_dir,
+    max_metric_calls: config.max_metric_calls,
+    reflection_llm: config.client,
+    reflection_minibatch_size: config.minibatch_size,
+    structured_output: config.structured_output?
   )
 
 IO.puts("""
 
-✅ Optimization Run Complete!
-=============================
+Optimization Run Complete
+=========================
 
 Current iteration: #{result.i}
-Best score: #{Float.round(GEPA.Result.best_score(result), 3)}
+Best score: #{Float.round(GEPA.Result.best_score(result), 4)}
 Total evaluations: #{result.total_num_evals}
+State saved to: #{config.run_dir}
 
-State saved to: #{run_dir}/
-""")
-
-# Check if we should continue
-if result.i < total_desired_iterations do
-  IO.puts("""
-
-  ⏸️  Paused at iteration #{result.i}/#{total_desired_iterations}
-
-  To continue optimization, run this script again:
-    mix run examples/04_state_persistence.exs
-
-  The optimization will automatically resume from iteration #{result.i + 1}.
-
-  📁 Saved files:
-  - #{run_dir}/state.etf (optimization state)
-  - #{run_dir}/result.etf (results so far)
-
-  💡 To stop optimization gracefully, create a file:
-    touch #{run_dir}/gepa.stop
-  """)
-else
-  IO.puts("""
-
-  🎉 Optimization Complete!
-  =========================
-
-  Reached #{result.i} iterations (target: #{total_desired_iterations})
-
-  Best candidate:
-  #{GEPA.Result.best_candidate(result)["instruction"]}
-
-  📊 Final statistics:
-  - Total iterations: #{result.i}
-  - Total evaluations: #{result.total_num_evals}
-  - Best validation score: #{Float.round(GEPA.Result.best_score(result), 3)}
-  - Candidates evaluated: #{length(result.program_candidates)}
-  - Pareto front size: #{length(result.program_at_pareto_front_valset)}
-  """)
-end
-
-IO.puts("""
-
-📚 What you learned:
-- Use `run_dir` option to enable state persistence
-- Optimization automatically resumes from saved state
-- State is saved after each iteration
-- Graceful stopping with `gepa.stop` file
-- Inspect saved state at any time
-
-🔧 Advanced usage:
-- Set different max_metric_calls for each run
-- Inspect intermediate results between runs
-- Copy state to continue with different parameters
-- Archive successful optimization runs
-
-🧹 Cleanup:
-  rm -rf #{run_dir}
+Saved files:
+- #{Path.join(config.run_dir, "gepa_state.etf")}
+- #{Path.join(config.run_dir, "candidates.json")}
 """)

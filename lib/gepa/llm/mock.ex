@@ -79,7 +79,7 @@ defmodule GEPA.LLM.Mock do
 
         # Use fixed response (always returns first one for simplicity)
         # For cycling responses, use a response_fn with closure state
-        is_list(llm.responses) and length(llm.responses) > 0 ->
+        is_list(llm.responses) and llm.responses != [] ->
           hd(llm.responses)
 
         # Default: generate improved instruction

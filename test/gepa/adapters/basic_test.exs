@@ -2,6 +2,16 @@ defmodule GEPA.Adapters.BasicTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
   alias GEPA.Adapters.Basic
+  alias GEPA.LLM.Mock
+
+  defmodule BasicFakeReqLLM do
+    def put_key(_key, _value), do: :ok
+    def generate_text(_model_spec, _prompt, _opts), do: {:ok, %{text: "The answer is A1."}}
+  end
+
+  defmodule BasicFakeReqLLMResponse do
+    def text(%{text: text}), do: text
+  end
 
   describe "evaluate/3" do
     test "scores correctly when answer found in response" do
@@ -38,6 +48,35 @@ defmodule GEPA.Adapters.BasicTest do
       {:ok, result} = Basic.evaluate(adapter, [%{input: "Q", answer: "A"}], %{"i" => "x"}, false)
 
       assert result.trajectories == nil
+    end
+
+    test "uses configured LLM client struct" do
+      llm = Mock.new(response_fn: fn _prompt -> "The answer is A1." end)
+      adapter = Basic.new(llm: llm)
+
+      {:ok, result} =
+        Basic.evaluate(adapter, [%{input: "Q1", answer: "A1"}], %{"instruction" => "Help"}, true)
+
+      assert result.scores == [1.0]
+      assert hd(result.outputs) == "The answer is A1."
+      assert hd(result.trajectories).response == "The answer is A1."
+    end
+
+    test "uses a normalized GEPA LLM client, not only test mock structs" do
+      llm =
+        GEPA.LLM.req_llm(:openai,
+          api_key: "explicit-key",
+          req_llm_module: BasicFakeReqLLM,
+          response_module: BasicFakeReqLLMResponse
+        )
+
+      adapter = Basic.new(llm: llm)
+
+      {:ok, result} =
+        Basic.evaluate(adapter, [%{input: "Q1", answer: "A1"}], %{"instruction" => "Help"}, true)
+
+      assert result.scores == [1.0]
+      assert hd(result.outputs) == "The answer is A1."
     end
   end
 

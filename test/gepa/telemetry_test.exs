@@ -1,6 +1,9 @@
 defmodule GEPA.TelemetryTest do
   use GEPA.SupertesterCase, isolation: :full_isolation, async: false
 
+  alias GEPA.DataLoader.List, as: ListLoader
+  alias GEPA.StopCondition.MaxCalls
+  alias GEPA.Strategies.CandidateSelector.CurrentBest
   alias GEPA.Telemetry
 
   defmodule TelemetryTestAdapter do
@@ -51,6 +54,10 @@ defmodule GEPA.TelemetryTest do
         end
 
       {:ok, dataset}
+    end
+
+    def propose_new_texts(_adapter, candidate, _reflective_dataset, components) do
+      {:ok, Map.new(components, &{&1, candidate[&1] <> " [Optimized]"})}
     end
   end
 
@@ -136,16 +143,16 @@ defmodule GEPA.TelemetryTest do
   # Helpers
 
   defp run_engine(opts) do
-    trainset = GEPA.DataLoader.List.new([%{input: "t", answer: "a"}])
-    valset = GEPA.DataLoader.List.new([%{input: "v", answer: "a"}])
+    trainset = ListLoader.new([%{input: "t", answer: "a"}])
+    valset = ListLoader.new([%{input: "v", answer: "a"}])
 
     config = %{
       seed_candidate: %{"instruction" => "base"},
       trainset: trainset,
       valset: valset,
       adapter: TelemetryTestAdapter.new(),
-      candidate_selector: GEPA.Strategies.CandidateSelector.CurrentBest,
-      stop_conditions: [GEPA.StopCondition.MaxCalls.new(opts[:max_calls])],
+      candidate_selector: CurrentBest,
+      stop_conditions: [MaxCalls.new(opts[:max_calls])],
       reflection_minibatch_size: 1,
       perfect_score: 1.0,
       skip_perfect_score: false,

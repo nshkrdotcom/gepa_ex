@@ -1,281 +1,360 @@
-# GEPA Examples
+# GEPA Live Examples
 
-This directory contains working examples demonstrating various GEPA features and use cases.
+All examples in this directory are live-only. They call the real selected LLM backend through the GEPA LLM facade. Deterministic replacement modules are limited to tests.
 
-## Quick Reference
+The example-only CLI helper lives in `examples/support/live_cli.exs`. It is intentionally not part of `lib/` or the public package API.
 
-| Example | Description | Complexity | Run Time |
-|---------|-------------|------------|----------|
-| [01_quick_start.exs](01_quick_start.exs) | Simplest possible example (10 lines) | ⭐ Beginner | < 1 second |
-| [02_math_problems.exs](02_math_problems.exs) | Math word problems with epoch sampling | ⭐⭐ Intermediate | 1-2 seconds (mock), 1-2 mins (real LLM) |
-| [03_custom_adapter.exs](03_custom_adapter.exs) | Build your own adapter | ⭐⭐⭐ Advanced | < 1 second |
-| [04_state_persistence.exs](04_state_persistence.exs) | Save/resume optimizations | ⭐⭐ Intermediate | < 1 second |
+## Fast Start
 
-## Running Examples
-
-### With Mock LLM (No API Key Needed)
-
-All examples work with mock LLM by default:
+If `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` is configured, the fastest live smoke is:
 
 ```bash
-mix run examples/01_quick_start.exs
-mix run examples/02_math_problems.exs
-mix run examples/03_custom_adapter.exs
-mix run examples/04_state_persistence.exs
+mix run examples/05_llm_adapters.exs -- --simple
 ```
 
-### With Real LLMs
-
-#### OpenAI (GPT-4o-mini)
+To run every example with small built-in demo prompts/data:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-mix run examples/01_quick_start.exs
-mix run examples/02_math_problems.exs
+examples/run_all.sh --simple
 ```
 
-#### Google Gemini (gemini-flash-lite-latest)
+Both commands make real LLM calls. They may incur provider costs.
+
+## Cost Warning
+
+Each example prints a live-call warning before making any LLM call. `examples/run_all.sh` prints a stronger warning because it executes the full example suite and can make many calls.
+
+## Sensible Defaults
+
+When `--adapter` and `--provider` are omitted, examples default to ReqLLM using the first configured hosted provider in this order:
+
+- Gemini: `GEMINI_API_KEY`, then `GOOGLE_API_KEY`
+- OpenAI: `OPENAI_API_KEY`
+- Anthropic: `ANTHROPIC_API_KEY`
+
+Explicit CLI options override these defaults:
+
+- `--adapter req_llm|asm`
+- `--provider openai|gemini|anthropic` for ReqLLM
+- `--provider codex|codex_exec|claude|gemini|amp` for ASM
+- `--api-key VALUE` for an explicit ReqLLM key override
+- `--model VALUE` for an explicit model override
+
+If `--adapter asm` is provided without `--provider`, the default ASM provider is `codex`.
+
+Default models:
+
+- `--adapter req_llm --provider openai` uses `gpt-5.4-mini`
+- `--adapter req_llm --provider gemini` uses `gemini-3.1-flash-lite-preview`
+- `--adapter req_llm --provider anthropic` uses `claude-haiku-4-5`
+- `--adapter asm --provider codex` uses the ASM/Codex default unless `--model` is provided
+- `--adapter asm --provider claude` uses the ASM/Claude default unless `--model` is provided
+- `--adapter asm --provider gemini` uses the ASM/Gemini default unless `--model` is provided
+- `--adapter asm --provider amp` uses the ASM/Amp default unless `--model` is provided
+
+## ReqLLM
+
+ReqLLM examples support OpenAI, Gemini, and Anthropic:
 
 ```bash
-export GEMINI_API_KEY=...
-mix run examples/01_quick_start.exs
-mix run examples/02_math_problems.exs
+mix run examples/05_llm_adapters.exs -- \
+  --provider gemini \
+  --input "Reply with exactly: gepa adapter ok"
 ```
 
-## Example Details
+Use `--api-key` only when you want to override the default key lookup:
 
-### 01_quick_start.exs
-
-**What it does:**
-- Optimizes a simple Q&A system
-- Uses 3 training examples
-- Runs for 10 iterations
-- Perfect for understanding GEPA basics
-
-**Key concepts:**
-- `GEPA.optimize/1` - Main API
-- `seed_candidate` - Initial instruction
-- `trainset` and `valset` - Data
-- `adapter` - System integration
-
-**Expected output:**
-```
-🚀 GEPA Quick Start Example
-===========================
-...
-✅ Optimization Complete!
-Best score: 0.667
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --adapter req_llm \
+  --provider openai \
+  --api-key sk-... \
+  --input "Reply with exactly: gepa adapter ok"
 ```
 
-### 02_math_problems.exs
+Structured output is available where the selected ReqLLM provider supports it:
 
-**What it does:**
-- Optimizes math problem-solving
-- Uses EpochShuffledBatchSampler
-- Works with mock or real LLMs
-- Demonstrates domain-specific optimization
-
-**Key concepts:**
-- Domain-specific prompts
-- Advanced batch sampling
-- LLM provider selection
-- Performance measurement
-
-**Expected output:**
-```
-🧮 GEPA Math Problems Example
-==============================
-...
-Best validation score: 0.857
-Improvement: +25.0 percentage points
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --provider gemini \
+  --structured-output \
+  --input "Return an improved instruction for a concise QA assistant."
 ```
 
-### 03_custom_adapter.exs
+## Agent Session Manager
 
-**What it does:**
-- Shows how to implement `GEPA.Adapter` behavior
-- Custom evaluation for sentiment classification
-- Component-specific feedback extraction
-- Integration patterns
+ASM examples support local/CLI providers through `../agent_session_manager`:
 
-**Key concepts:**
-- `evaluate/4` callback - Custom scoring
-- `extract_component_context/6` - Feedback generation
-- Domain-specific prompts
-- Trace handling
+- `codex`
+- `codex_exec`
+- `claude`
+- `gemini`
+- `amp`
 
-**Expected output:**
-```
-💭 GEPA Custom Adapter Example
-==============================
-...
-What you learned:
-- How to implement the GEPA.Adapter behavior
-- Custom evaluation logic for your domain
+Codex through ASM:
+
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_codex_smoke \
+  --input "Reply with exactly: gepa adapter ok"
 ```
 
-**Customization guide:**
-1. Copy the `CustomSentimentAdapter` module
-2. Modify `evaluate/4` for your task
-3. Implement your scoring logic
-4. Extract relevant feedback in `extract_component_context/6`
-5. Test with your data
+ASM streaming emits text chunks at the GEPA facade boundary:
 
-### 04_state_persistence.exs
-
-**What it does:**
-- Saves optimization state to disk
-- Automatically resumes on restart
-- Demonstrates incremental optimization
-- Shows graceful stopping
-
-**Key concepts:**
-- `run_dir` option for persistence
-- Automatic state save/load
-- Incremental progress
-- Graceful shutdown with `gepa.stop` file
-
-**Expected output:**
-```
-💾 GEPA State Persistence Example
-=================================
-...
-⏸️  Paused at iteration 5/15
-To continue, run this script again
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_stream \
+  --stream \
+  --input "Stream a short status update."
 ```
 
-**Workflow:**
-1. Run script → saves state to `./tmp/gepa_example_run/`
-2. Run again → resumes from saved state
-3. Repeat until target iterations reached
-4. To stop early: `touch ./tmp/gepa_example_run/gepa.stop`
+ASM provider prerequisites, authentication, sandboxing, and local CLI setup are managed outside GEPA by Agent Session Manager and the selected CLI provider.
 
-## Common Patterns
+## Simple Mode
 
-### Basic Optimization
+`--simple` is a live convenience mode:
 
-```elixir
-{:ok, result} = GEPA.optimize(
-  seed_candidate: %{"instruction" => "..."},
-  trainset: trainset,
-  valset: valset,
-  adapter: adapter,
-  max_metric_calls: 50
-)
+- It still makes real LLM calls.
+- It infers the provider from configured keys unless you pass explicit provider options.
+- It supplies small built-in demo prompts/data for examples that otherwise need JSONL input.
+- It uses a small optimization budget by default: `--max-metric-calls 2` and `--minibatch-size 1`.
 
-best = GEPA.Result.best_candidate(result)
-score = GEPA.Result.best_score(result)
+Examples:
+
+```bash
+mix run examples/01_quick_start.exs -- --simple
+mix run examples/02_math_problems.exs -- --simple
+mix run examples/03_custom_adapter.exs -- --simple
+mix run examples/04_state_persistence.exs -- --simple
+mix run examples/05_llm_adapters.exs -- --simple
+mix run examples/06_stop_conditions.exs -- --simple
+mix run examples/07_merge_and_policies.exs -- --simple
+mix run examples/08_optimize_anything_single_task.exs -- --simple
+mix run examples/09_optimize_anything_dataset.exs -- --simple
+mix run examples/10_code_execution.exs -- --simple
+mix run examples/11_refiner.exs -- --simple
+mix run examples/12_tracking.exs -- --simple
 ```
 
-### With Real LLM
+You can combine `--simple` with explicit backend selection:
 
-```elixir
-# OpenAI
-llm = GEPA.LLM.ReqLLM.new(provider: :openai)
-
-# Gemini
-llm = GEPA.LLM.ReqLLM.new(provider: :gemini)
-
-# Mock (testing)
-llm = GEPA.LLM.Mock.new()
-
-adapter = GEPA.Adapters.Basic.new(llm: llm)
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --simple \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_simple_codex
 ```
 
-### With Epoch Shuffling
+## Data Files
 
-```elixir
-batch_sampler = GEPA.Strategies.BatchSampler.EpochShuffled.new(
-  minibatch_size: 5,
-  seed: 42
-)
+Without `--simple`, optimization examples require JSONL data that you provide. Each line must be a JSON object.
 
-{:ok, result} = GEPA.optimize(
-  # ...
-  batch_sampler: batch_sampler
-)
+Question/answer examples use:
+
+```json
+{"input":"<your real question>","answer":"<expected answer text>"}
 ```
 
-### With State Persistence
+Sentiment adapter example uses:
 
-```elixir
-{:ok, result} = GEPA.optimize(
-  # ...
-  run_dir: "./my_optimization"
-)
-
-# Run again to resume:
-# mix run my_script.exs
-# State automatically loaded from ./my_optimization/
+```json
+{"text":"<your real text>","sentiment":"positive"}
 ```
+
+Supported sentiment labels are `positive`, `negative`, and `neutral`.
+
+## Examples
+
+### 01 Quick Start
+
+Runs a small live GEPA optimization over question/answer JSONL data.
+
+```bash
+mix run examples/01_quick_start.exs -- \
+  --provider gemini \
+  --train-jsonl /path/to/qa_train.jsonl \
+  --val-jsonl /path/to/qa_val.jsonl \
+  --max-metric-calls 8
+```
+
+### 02 Math Problems
+
+Runs a live GEPA optimization over math question/answer JSONL data.
+
+```bash
+mix run examples/02_math_problems.exs -- \
+  --provider gemini \
+  --train-jsonl /path/to/math_train.jsonl \
+  --val-jsonl /path/to/math_val.jsonl \
+  --max-metric-calls 8
+```
+
+### 03 Custom Sentiment Adapter
+
+Runs a custom live adapter over `text`/`sentiment` JSONL data.
+
+```bash
+mix run examples/03_custom_adapter.exs -- \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_sentiment \
+  --train-jsonl /path/to/sentiment_train.jsonl \
+  --val-jsonl /path/to/sentiment_val.jsonl \
+  --max-metric-calls 8
+```
+
+### 04 State Persistence
+
+Runs or resumes a live optimization with checkpoint persistence.
+
+```bash
+mix run examples/04_state_persistence.exs -- \
+  --provider gemini \
+  --train-jsonl /path/to/persistence_train.jsonl \
+  --val-jsonl /path/to/persistence_val.jsonl \
+  --run-dir /path/to/gepa_run \
+  --max-metric-calls 8
+```
+
+### 05 LLM Adapter Smoke
+
+Makes one real completion call through ReqLLM or ASM.
+
+```bash
+mix run examples/05_llm_adapters.exs -- --simple
+```
+
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_adapter_smoke \
+  --input "Reply with exactly: gepa adapter ok"
+```
+
+### 06 Stop Conditions
+
+Runs GEPA with multiple stop conditions composed together.
+
+```bash
+mix run examples/06_stop_conditions.exs -- --simple
+```
+
+### 07 Merge and Policies
+
+Runs GEPA with merge enabled and explicit strategy settings.
+
+```bash
+mix run examples/07_merge_and_policies.exs -- --simple
+```
+
+### 08 Optimize Anything Single Task
+
+Optimizes a single prompt string with a live LLM-backed evaluator.
+
+```bash
+mix run examples/08_optimize_anything_single_task.exs -- --simple
+```
+
+### 09 Optimize Anything Dataset
+
+Optimizes a prompt map over question/answer examples.
+
+```bash
+mix run examples/09_optimize_anything_dataset.exs -- --simple
+```
+
+### 10 Code Execution
+
+Optimizes a small Elixir snippet and evaluates it through `GEPA.CodeExecution`.
+
+```bash
+mix run examples/10_code_execution.exs -- --simple
+```
+
+### 11 Refiner
+
+Runs `GEPA.OptimizeAnything` with the per-evaluation refiner enabled.
+
+```bash
+mix run examples/11_refiner.exs -- --simple
+```
+
+### 12 Tracking
+
+Runs GEPA with `GEPA.Tracking.InMemory` enabled.
+
+```bash
+mix run examples/12_tracking.exs -- --simple
+```
+
+## Run Everything
+
+`run_all.sh` runs every example.
+
+Fast live demo:
+
+```bash
+examples/run_all.sh --simple
+```
+
+With your own data:
+
+```bash
+examples/run_all.sh \
+  --provider gemini \
+  --qa-train-jsonl /path/to/qa_train.jsonl \
+  --qa-val-jsonl /path/to/qa_val.jsonl \
+  --math-train-jsonl /path/to/math_train.jsonl \
+  --math-val-jsonl /path/to/math_val.jsonl \
+  --sentiment-train-jsonl /path/to/sentiment_train.jsonl \
+  --sentiment-val-jsonl /path/to/sentiment_val.jsonl \
+  --persistence-train-jsonl /path/to/persistence_train.jsonl \
+  --persistence-val-jsonl /path/to/persistence_val.jsonl \
+  --run-dir /path/to/gepa_run_all \
+  --smoke-input "Reply with exactly: gepa adapter ok" \
+  --max-metric-calls 8
+```
+
+ASM Codex:
+
+```bash
+examples/run_all.sh \
+  --adapter asm \
+  --provider codex \
+  --lane core \
+  --session gepa_run_all \
+  --simple
+```
+
+## Help
+
+Every example and the runner support `--help`:
+
+```bash
+mix run examples/01_quick_start.exs -- --help
+mix run examples/05_llm_adapters.exs -- --help
+examples/run_all.sh --help
+```
+
+Calling `examples/run_all.sh` without arguments prints the same help menu and does not run the suite. Calling an individual example without required args prints help plus concrete missing-argument errors and exits before any LLM call.
 
 ## Troubleshooting
 
-### "Module GEPA not found"
-
-Make sure you're running from the project root:
-
-```bash
-cd gepa_ex
-mix run examples/01_quick_start.exs
-```
-
-### Mock LLM gives strange results
-
-This is expected! Mock LLM returns canned responses. For realistic optimization:
-
-```bash
-export OPENAI_API_KEY=sk-...
-mix run examples/02_math_problems.exs
-```
-
-### State file corrupted
-
-Delete the state directory and start fresh:
-
-```bash
-rm -rf ./tmp/gepa_example_run
-mix run examples/04_state_persistence.exs
-```
-
-### LLM API rate limits
-
-If you hit rate limits with real LLMs:
-1. Reduce `max_metric_calls`
-2. Use smaller training sets
-3. Add delays between calls
-4. Use mock LLM for testing
-
-## Next Steps
-
-After trying these examples:
-
-1. **Read the docs**: See `docs/` for detailed guides
-2. **Create your adapter**: Based on `03_custom_adapter.exs`
-3. **Run real optimizations**: With your own data and tasks
-4. **Experiment with parameters**: Try different batch sizes, iterations, etc.
-5. **Share your results**: Open an issue or discussion!
-
-## Need Help?
-
-- **Documentation**: See `../docs/` directory
-- **Issues**: https://github.com/yourorg/gepa_ex/issues
-- **Discussions**: https://github.com/yourorg/gepa_ex/discussions
-
-## Contributing Examples
-
-Have a cool use case? We'd love to add more examples!
-
-1. Fork the repo
-2. Add your example to `examples/`
-3. Follow the naming convention: `NN_description.exs`
-4. Include documentation and expected output
-5. Submit a PR
-
-Good example ideas:
-- Code generation optimization
-- Multi-turn conversation
-- Retrieval-augmented generation (RAG)
-- Domain-specific tasks (legal, medical, etc.)
-- Integration with Phoenix/LiveView
-- Batch processing pipelines
+- Missing default key: set `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`, or pass `--adapter/--provider/--api-key`.
+- Wrong literal API key: pass the actual secret value, for example `--api-key "$GEMINI_API_KEY"`, not `--api-key GEMINI_API_KEY`.
+- ReqLLM provider failure: confirm the hosted provider key and selected model are valid.
+- ASM provider failure: confirm the local provider CLI works outside GEPA and that the selected `--lane` is valid.
+- Streaming failure: use `--adapter asm`; ReqLLM streaming is intentionally not exposed by this temporary facade.
+- Structured output failure with ASM: use ReqLLM for structured output until ASM has a native structured-output contract.
+- JSONL load failure: verify each line is valid JSON and uses the fields required by the selected example.

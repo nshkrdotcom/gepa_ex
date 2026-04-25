@@ -121,6 +121,9 @@ defmodule GEPA.DataLoader.List do
   end
 
   @impl true
+  def all_ids(%__MODULE__{items: []}), do: []
+
+  @impl true
   def all_ids(%__MODULE__{items: items}) do
     Enum.to_list(0..(length(items) - 1))
   end

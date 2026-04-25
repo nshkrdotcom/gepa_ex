@@ -4,14 +4,15 @@ defmodule GEPA.Proposer.MergeTest do
   # TDD RED PHASE: Main Merge Proposer Module
   # These tests define the complete merge proposer behavior
 
+  alias GEPA.{CandidateProposal, EvaluationBatch, State}
+  alias GEPA.DataLoader.List, as: ListLoader
   alias GEPA.Proposer.Merge
-  alias GEPA.{CandidateProposal, State, EvaluationBatch}
 
   describe "new/1 - RED PHASE" do
     test "creates merge proposer with required options" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([%{input: "test", answer: "1"}]),
+          valset: ListLoader.new([%{input: "test", answer: "1"}]),
           evaluator: fn _batch, _prog -> {[], []} end,
           max_merge_invocations: 5
         )
@@ -25,7 +26,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "raises on invalid val_overlap_floor" do
       assert_raise ArgumentError, fn ->
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           max_merge_invocations: 5,
           # Invalid!
@@ -37,7 +38,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "initializes with default seed if not provided" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           max_merge_invocations: 5
         )
@@ -50,7 +51,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "increments merges_due when merge is enabled and under budget" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: true,
           max_merge_invocations: 5
@@ -66,7 +67,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "does not schedule when merge is disabled" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: false,
           max_merge_invocations: 5
@@ -80,7 +81,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "does not schedule when budget exhausted" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: true,
           max_merge_invocations: 2
@@ -107,7 +108,7 @@ defmodule GEPA.Proposer.MergeTest do
 
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           max_merge_invocations: 5,
           seed: 42
@@ -135,7 +136,7 @@ defmodule GEPA.Proposer.MergeTest do
 
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           max_merge_invocations: 5,
           seed: 42
@@ -159,7 +160,7 @@ defmodule GEPA.Proposer.MergeTest do
 
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           max_merge_invocations: 5,
           seed: 42
@@ -181,7 +182,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "returns nil when merge is not enabled" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: false,
           max_merge_invocations: 5
@@ -198,7 +199,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "returns nil when no merge is scheduled" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: true,
           max_merge_invocations: 5
@@ -215,7 +216,7 @@ defmodule GEPA.Proposer.MergeTest do
     test "returns nil when last iteration found no new program" do
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([]),
+          valset: ListLoader.new([]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: true,
           max_merge_invocations: 5
@@ -238,7 +239,7 @@ defmodule GEPA.Proposer.MergeTest do
 
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([%{a: 1}, %{b: 2}, %{c: 3}]),
+          valset: ListLoader.new([%{a: 1}, %{b: 2}, %{c: 3}]),
           evaluator: evaluator,
           use_merge: true,
           max_merge_invocations: 5,
@@ -266,7 +267,7 @@ defmodule GEPA.Proposer.MergeTest do
 
       proposer =
         Merge.new(
-          valset: GEPA.DataLoader.List.new([%{a: 1}, %{b: 2}, %{c: 3}]),
+          valset: ListLoader.new([%{a: 1}, %{b: 2}, %{c: 3}]),
           evaluator: evaluator,
           use_merge: true,
           max_merge_invocations: 5,

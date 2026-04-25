@@ -1,11 +1,11 @@
 defmodule GEPA.Proposer.ReflectiveTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
-  alias GEPA.Proposer.Reflective
-  alias GEPA.Proposer.InstructionProposal
-  alias GEPA.LLM.Mock
   alias GEPA.Adapters.Basic
   alias GEPA.DataLoader
+  alias GEPA.LLM.Mock
+  alias GEPA.Proposer.InstructionProposal
+  alias GEPA.Proposer.Reflective
   alias GEPA.State
 
   describe "new/1" do
@@ -55,8 +55,8 @@ defmodule GEPA.Proposer.ReflectiveTest do
     end
   end
 
-  describe "propose/2 without instruction_proposal (fallback)" do
-    test "uses simple improvement when instruction_proposal is nil" do
+  describe "propose/2 without a proposal source" do
+    test "returns an error instead of using a placeholder mutation" do
       adapter = Basic.new()
 
       trainset =
@@ -75,20 +75,9 @@ defmodule GEPA.Proposer.ReflectiveTest do
       # Create a minimal state
       state = create_test_state(%{"instruction" => "Answer questions"})
 
-      case Reflective.propose(proposer, state) do
-        {:ok, proposal, _selector} ->
-          # Fallback should append [Optimized]
-          assert String.contains?(proposal.candidate["instruction"], "[Optimized]")
-          assert proposal.tag == "reflective_mutation"
-
-        {:none, _selector} ->
-          # This can happen if score is perfect
-          :ok
-
-        {:error, _reason, _selector} ->
-          # Adapter might fail in test environment
-          :ok
-      end
+      assert {:error, {:proposal_generation_failed, :missing_proposal_source}, _proposer,
+              _updated_state} =
+               Reflective.propose(proposer, state)
     end
   end
 
@@ -116,17 +105,17 @@ defmodule GEPA.Proposer.ReflectiveTest do
       state = create_test_state(%{"instruction" => "Answer questions"})
 
       case Reflective.propose(proposer, state) do
-        {:ok, proposal, _selector} ->
+        {:ok, proposal, _proposer, _updated_state} ->
           # Should use LLM response, not fallback
           assert proposal.candidate["instruction"] == "LLM-improved instruction"
           refute String.contains?(proposal.candidate["instruction"], "[Optimized]")
           assert proposal.tag == "reflective_mutation"
 
-        {:none, _selector} ->
+        {:none, _proposer, _updated_state, _metadata} ->
           # Perfect score skip
           :ok
 
-        {:error, _reason, _selector} ->
+        {:error, _reason, _proposer, _updated_state} ->
           # Adapter might fail
           :ok
       end
@@ -221,13 +210,70 @@ defmodule GEPA.Proposer.ReflectiveTest do
         })
 
       case Reflective.propose(proposer, state) do
-        {:ok, proposal, _selector} ->
+        {:ok, proposal, _proposer, _updated_state} ->
           assert Map.has_key?(proposal.candidate, "system_prompt")
           assert Map.has_key?(proposal.candidate, "user_template")
 
         _ ->
           :ok
       end
+    end
+
+    test "uses adapter propose_new_texts override before default instruction proposal" do
+      test_pid = self()
+
+      defmodule ProposalOverrideAdapter do
+        @behaviour GEPA.Adapter
+
+        defstruct [:test_pid]
+
+        def new(test_pid), do: %__MODULE__{test_pid: test_pid}
+
+        @impl true
+        def evaluate(_adapter, batch, _candidate, capture_traces) do
+          trajectories = if capture_traces, do: Enum.map(batch, fn _ -> %{} end)
+
+          {:ok,
+           %GEPA.EvaluationBatch{
+             outputs: Enum.map(batch, fn _ -> "output" end),
+             scores: Enum.map(batch, fn _ -> 0.5 end),
+             trajectories: trajectories
+           }}
+        end
+
+        @impl true
+        def make_reflective_dataset(_adapter, _candidate, _eval_batch, components) do
+          {:ok, Map.new(components, &{&1, [%{"Feedback" => "use override"}]})}
+        end
+
+        @impl true
+        def propose_new_texts(adapter, _candidate, _reflective_dataset, components) do
+          send(adapter.test_pid, {:proposal_override_called, components})
+          {:ok, Map.new(components, &{&1, "adapter override"})}
+        end
+      end
+
+      llm =
+        Mock.new(
+          response_fn: fn _prompt ->
+            flunk("LLM should not be called when adapter overrides proposal")
+          end
+        )
+
+      proposer =
+        Reflective.new(
+          adapter: ProposalOverrideAdapter.new(test_pid),
+          trainset: DataLoader.List.new([%{input: "test", answer: "answer"}]),
+          minibatch_size: 1,
+          skip_perfect_score: false,
+          instruction_proposal: InstructionProposal.new(llm: llm)
+        )
+
+      state = create_test_state(%{"instruction" => "Original"})
+
+      assert {:ok, proposal, _proposer, _updated_state} = Reflective.propose(proposer, state)
+      assert proposal.candidate["instruction"] == "adapter override"
+      assert_receive {:proposal_override_called, ["instruction"]}
     end
   end
 
@@ -239,12 +285,12 @@ defmodule GEPA.Proposer.ReflectiveTest do
 
         def new, do: %{__struct__: __MODULE__}
 
-        def evaluate(%{}, batch, _candidate, _capture_traces) do
+        def evaluate(%{}, batch, _candidate, capture_traces) do
           {:ok,
            %GEPA.EvaluationBatch{
              outputs: Enum.map(batch, fn _ -> "perfect" end),
              scores: Enum.map(batch, fn _ -> 1.0 end),
-             trajectories: nil
+             trajectories: if(capture_traces, do: Enum.map(batch, fn _ -> %{} end))
            }}
         end
 
@@ -268,7 +314,9 @@ defmodule GEPA.Proposer.ReflectiveTest do
       state = create_test_state(%{"instruction" => "Already perfect"})
 
       result = Reflective.propose(proposer, state)
-      assert {:none, _selector} = result
+
+      assert {:none, _proposer, _updated_state,
+              %{reason: :all_scores_perfect, num_metric_calls: 1}} = result
     end
 
     test "does not skip when skip_perfect_score is false" do
@@ -277,17 +325,21 @@ defmodule GEPA.Proposer.ReflectiveTest do
 
         def new, do: %{__struct__: __MODULE__}
 
-        def evaluate(%{}, batch, _candidate, _capture_traces) do
+        def evaluate(%{}, batch, _candidate, capture_traces) do
           {:ok,
            %GEPA.EvaluationBatch{
              outputs: Enum.map(batch, fn _ -> "perfect" end),
              scores: Enum.map(batch, fn _ -> 1.0 end),
-             trajectories: nil
+             trajectories: if(capture_traces, do: Enum.map(batch, fn _ -> %{} end))
            }}
         end
 
         def make_reflective_dataset(%{}, _candidate, _eval_batch, _components) do
           {:ok, %{}}
+        end
+
+        def propose_new_texts(_adapter, _candidate, _reflective_dataset, components) do
+          {:ok, Map.new(components, &{&1, "still perfect but updated"})}
         end
       end
 
@@ -307,7 +359,7 @@ defmodule GEPA.Proposer.ReflectiveTest do
 
       result = Reflective.propose(proposer, state)
       # Should return a proposal, not :none
-      assert match?({:ok, %GEPA.CandidateProposal{}, _}, result)
+      assert match?({:ok, %GEPA.CandidateProposal{}, _, _}, result)
     end
   end
 

@@ -3,8 +3,8 @@ defmodule GEPA.Proposer.MergeExecutionTest do
 
   # TDD: Tests for actual merge execution and predictor merging logic
 
+  alias GEPA.{CandidateProposal, DataLoader, EvaluationBatch, State}
   alias GEPA.Proposer.Merge
-  alias GEPA.{State, EvaluationBatch, DataLoader, CandidateProposal}
 
   describe "merge execution with different predictor patterns - RED PHASE" do
     test "merges when one parent keeps ancestor value, other changes" do

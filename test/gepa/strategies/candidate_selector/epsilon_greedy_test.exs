@@ -1,8 +1,8 @@
 defmodule GEPA.Strategies.CandidateSelector.EpsilonGreedyTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
-  alias GEPA.Strategies.CandidateSelector.EpsilonGreedy
   alias GEPA.Strategies.CandidateSelector.CurrentBest
+  alias GEPA.Strategies.CandidateSelector.EpsilonGreedy
 
   describe "new/1" do
     test "creates with defaults" do

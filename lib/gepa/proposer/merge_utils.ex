@@ -177,46 +177,34 @@ defmodule GEPA.Proposer.MergeUtils do
   def find_common_ancestor_pair(program_indexes, parent_list, scores, opts \\ []) do
     max_attempts = Keyword.get(opts, :max_attempts, 10)
 
-    # Need at least 2 programs
-    if length(program_indexes) < 2 do
-      nil
-    else
-      do_find_pair(program_indexes, parent_list, scores, max_attempts)
-    end
+    do_find_pair(program_indexes, parent_list, scores, max_attempts)
   end
 
   defp do_find_pair(_programs, _parent_list, _scores, 0), do: nil
 
-  defp do_find_pair(programs, parent_list, scores, _attempts_left) do
+  defp do_find_pair([id1, id2 | _rest], parent_list, scores, _attempts_left) when id1 != id2 do
     # Pick two random programs (for now, just take first two for determinism)
     # In production, we'd randomly sample
-    case programs do
-      [id1, id2 | _rest] when id1 != id2 ->
-        # Get ancestors of each
-        ancestors1 = get_ancestors(id1, parent_list) |> MapSet.new()
-        ancestors2 = get_ancestors(id2, parent_list) |> MapSet.new()
+    ancestors1 = get_ancestors(id1, parent_list) |> MapSet.new()
+    ancestors2 = get_ancestors(id2, parent_list) |> MapSet.new()
 
-        # Check if one is ancestor of the other
-        cond do
-          id1 in ancestors2 or id2 in ancestors1 ->
-            # One is ancestor of other, can't merge
-            nil
-
-          true ->
-            # Find common ancestors
-            common = MapSet.intersection(ancestors1, ancestors2) |> MapSet.to_list()
-
-            if length(common) > 0 do
-              # Pick the highest-scoring common ancestor
-              ancestor = Enum.max_by(common, fn a -> Map.get(scores, a, 0) end)
-              {id1, id2, ancestor}
-            else
-              nil
-            end
-        end
-
-      _ ->
-        nil
+    # One is ancestor of other, can't merge.
+    if id1 in ancestors2 or id2 in ancestors1 do
+      nil
+    else
+      ancestors1
+      |> MapSet.intersection(ancestors2)
+      |> MapSet.to_list()
+      |> common_ancestor_pair(id1, id2, scores)
     end
+  end
+
+  defp do_find_pair(_programs, _parent_list, _scores, _attempts_left), do: nil
+
+  defp common_ancestor_pair([], _id1, _id2, _scores), do: nil
+
+  defp common_ancestor_pair(common, id1, id2, scores) do
+    ancestor = Enum.max_by(common, fn a -> Map.get(scores, a, 0) end)
+    {id1, id2, ancestor}
   end
 end

@@ -55,6 +55,14 @@ defmodule GEPA.LLM.ReqLLMErrorTest do
       # Key point: doesn't crash
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
+
+    test "handles Anthropic provider gracefully through ReqLLM" do
+      llm = ReqLLM.new(provider: :anthropic, api_key: "test-key")
+
+      result = ReqLLM.complete(llm, "test prompt")
+
+      assert match?({:ok, _}, result) or match?({:error, _}, result)
+    end
   end
 
   describe "timeout handling" do
@@ -91,8 +99,8 @@ defmodule GEPA.LLM.ReqLLMErrorTest do
       llm = ReqLLM.new(provider: :openai, max_tokens: 1)
       assert llm.max_tokens == 1
 
-      llm = ReqLLM.new(provider: :openai, max_tokens: 10000)
-      assert llm.max_tokens == 10000
+      llm = ReqLLM.new(provider: :openai, max_tokens: 10_000)
+      assert llm.max_tokens == 10_000
     end
 
     test "accepts optional top_p parameter" do
@@ -124,14 +132,6 @@ defmodule GEPA.LLM.ReqLLMErrorTest do
   end
 
   describe "API key retrieval" do
-    setup do
-      # Clear all API keys before each test
-      System.delete_env("OPENAI_API_KEY")
-      System.delete_env("GEMINI_API_KEY")
-      System.delete_env("GOOGLE_API_KEY")
-      :ok
-    end
-
     test "no API key results in nil" do
       llm = ReqLLM.new(provider: :openai)
       assert llm.api_key == nil
@@ -160,6 +160,10 @@ defmodule GEPA.LLM.ReqLLMErrorTest do
       # Gemini models
       llm = ReqLLM.new(provider: :gemini, model: "gemini-pro")
       assert llm.model == "gemini-pro"
+
+      # Anthropic models
+      llm = ReqLLM.new(provider: :anthropic, model: "claude-sonnet-4-5")
+      assert llm.model == "claude-sonnet-4-5"
 
       # Future/unknown models should work
       llm = ReqLLM.new(provider: :openai, model: "gpt-5-ultra")
