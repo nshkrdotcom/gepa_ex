@@ -140,6 +140,7 @@ mix run examples/09_optimize_anything_dataset.exs -- --simple
 mix run examples/10_code_execution.exs -- --simple
 mix run examples/11_refiner.exs -- --simple
 mix run examples/12_tracking.exs -- --simple
+mix run examples/13_adrs_cloud_optimization.exs -- --simple
 ```
 
 You can combine `--simple` with explicit backend selection:
@@ -297,6 +298,21 @@ Runs GEPA with `GEPA.Tracking.InMemory` enabled.
 ```bash
 mix run examples/12_tracking.exs -- --simple
 ```
+
+### 13 ADR Cloud Optimization
+
+Optimizes a cloud architecture-decision policy across two headless ADR-style
+domains: deadline-aware spot/on-demand scheduling and cost-aware multi-cloud
+broadcast routing. The evaluator uses built-in scenario maps and the selected
+live LLM adapter proposes policy revisions through `GEPA.OptimizeAnything`.
+
+```bash
+mix run examples/13_adrs_cloud_optimization.exs -- --simple
+```
+
+Expected output includes `ADR Cloud Optimization Complete`, the best validation
+score, and the best policy text. If the score stays low, increase
+`--max-metric-calls` or use a stronger reflection model.
 
 ## Run Everything
 
