@@ -97,13 +97,23 @@ defmodule GEPA.Adapters.Confidence do
   end
 
   @doc "Extract a nested field from a decoded JSON map."
-  @spec extract_answer_from_json(map(), String.t() | [String.t() | atom()]) :: term()
-  def extract_answer_from_json(decoded, field_path) when is_binary(field_path) do
+  @spec extract_answer_from_json(map() | String.t(), String.t() | [String.t() | atom()]) ::
+          term()
+  def extract_answer_from_json(text, field_path) when is_binary(text) do
+    case Jason.decode(text) do
+      {:ok, decoded} -> extract_answer_from_json(decoded, field_path)
+      {:error, _reason} -> nil
+    end
+  end
+
+  def extract_answer_from_json(decoded, field_path)
+      when is_map(decoded) and is_binary(field_path) do
     decoded
     |> extract_answer_from_json(String.split(field_path, "."))
   end
 
-  def extract_answer_from_json(decoded, field_path) when is_list(field_path) do
+  def extract_answer_from_json(decoded, field_path)
+      when is_map(decoded) and is_list(field_path) do
     Enum.reduce_while(field_path, decoded, fn key, acc ->
       value = get_any(acc, [key, to_string(key), safe_atom(key)])
 
@@ -111,28 +121,27 @@ defmodule GEPA.Adapters.Confidence do
     end)
   end
 
+  def extract_answer_from_json(_decoded, _field_path), do: nil
+
   @doc "Build human-readable feedback for reflection."
   @spec build_feedback(map()) :: String.t()
   def build_feedback(trace) do
-    prediction = Map.get(trace, :prediction)
+    prediction = get_any(trace, [:prediction, :parsed_value, "prediction", "parsed_value"])
     expected = Map.get(trace, :expected)
-    probability = Map.get(trace, :probability)
-    correct? = Map.get(trace, :correct?)
+    probability = confidence_probability(trace)
+    correct? = get_any(trace, [:correct?, :is_correct, "correct?", "is_correct"])
+    high_confidence_prob = Map.get(trace, :high_confidence_prob, 0.99)
+    low_confidence_prob = Map.get(trace, :low_confidence_prob, 0.9)
 
-    confidence_text =
-      if is_number(probability) do
-        " Confidence probability for the target field was #{Float.round(probability, 4)}."
-      else
-        " Confidence metadata was unavailable."
-      end
-
-    if correct? do
-      "Correct prediction #{inspect(prediction)} matched expected #{inspect(expected)}." <>
-        confidence_text
-    else
-      "Incorrect prediction #{inspect(prediction)}. Expected #{inspect(expected)}." <>
-        confidence_text
-    end
+    build_feedback(
+      trace,
+      correct?,
+      expected,
+      prediction,
+      probability,
+      high_confidence_prob,
+      low_confidence_prob
+    )
   end
 
   defp evaluate_one(%__MODULE__{} = adapter, example, candidate) do
@@ -147,6 +156,7 @@ defmodule GEPA.Adapters.Confidence do
       logprob = Map.get(confidence, :joint_logprob)
       probability = Scoring.probability(logprob)
       score = Scoring.score(adapter.scoring_strategy, correct?, logprob)
+      top_alternatives = normalize_alternatives(Map.get(confidence, :top_logprobs, []))
 
       objective_scores = %{
         "accuracy" => if(correct?, do: 1.0, else: 0.0),
@@ -160,23 +170,32 @@ defmodule GEPA.Adapters.Confidence do
           objective_scores
         end
 
-      output = %{
-        full_response: raw_text,
-        decoded: decoded,
-        prediction: prediction,
-        expected: expected
-      }
+      output =
+        %{
+          full_response: raw_text,
+          decoded: decoded,
+          prediction: prediction,
+          parsed_value: prediction,
+          expected: expected
+        }
+        |> maybe_put(:logprob_score, logprob)
+        |> maybe_put(:probability, probability)
+        |> Map.put(:top_alternatives, top_alternatives)
 
       trajectory = %{
         input: get_any(example, [:input, "input", :query, "query"]),
         additional_context: get_any(example, [:additional_context, "additional_context"]),
         output: output,
         prediction: prediction,
+        parsed_value: prediction,
         expected: expected,
         correct?: correct?,
+        is_correct: correct?,
         joint_logprob: logprob,
+        logprob_score: logprob,
         probability: probability,
-        top_logprobs: Map.get(confidence, :top_logprobs, []),
+        top_logprobs: top_alternatives,
+        top_alternatives: top_alternatives,
         score: score,
         objective_scores: objective_scores
       }
@@ -193,8 +212,11 @@ defmodule GEPA.Adapters.Confidence do
       input: get_any(example, [:input, "input", :query, "query"]),
       expected: get_any(example, [:answer, "answer", :expected, "expected"]),
       output: nil,
+      parsed_value: nil,
       error: inspect(reason),
       correct?: false,
+      is_correct: false,
+      logprob_score: nil,
       score: adapter.failure_score,
       objective_scores: %{
         "accuracy" => 0.0,
@@ -203,7 +225,7 @@ defmodule GEPA.Adapters.Confidence do
     }
 
     %{
-      output: %{error: inspect(reason)},
+      output: %{error: inspect(reason), parsed_value: nil, logprob_score: nil},
       score: adapter.failure_score,
       objective_scores: trajectory.objective_scores,
       trajectory: trajectory
@@ -304,6 +326,111 @@ defmodule GEPA.Adapters.Confidence do
 
   defp normalize_logprob(_), do: %{}
 
+  defp confidence_probability(trace) do
+    cond do
+      is_number(Map.get(trace, :probability)) ->
+        Map.get(trace, :probability)
+
+      is_number(Map.get(trace, :logprob_score)) ->
+        Scoring.probability(Map.get(trace, :logprob_score))
+
+      is_number(Map.get(trace, :joint_logprob)) ->
+        Scoring.probability(Map.get(trace, :joint_logprob))
+
+      true ->
+        nil
+    end
+  end
+
+  defp build_feedback(_trace, true, _expected, _prediction, nil, _high, _low), do: "Correct."
+
+  defp build_feedback(_trace, true, _expected, _prediction, probability, high, _low)
+       when probability >= high,
+       do: "Correct."
+
+  defp build_feedback(trace, true, _expected, _prediction, probability, _high, low)
+       when probability < low do
+    "Correct, but uncertain: confidence probability was #{format_probability(probability)}." <>
+      alternatives_text(trace)
+  end
+
+  defp build_feedback(_trace, true, _expected, _prediction, probability, _high, _low) do
+    "Correct, but confidence probability was #{format_probability(probability)}."
+  end
+
+  defp build_feedback(trace, false, expected, prediction, probability, high, _low) do
+    rendered_prediction = prediction || "<parse error>"
+    confidence = confidence_text(probability)
+    context = context_text(Map.get(trace, :additional_context, %{}))
+    alternatives = alternatives_text(trace)
+
+    if is_number(probability) and probability >= high do
+      "WRONG and misleading: predicted #{inspect(rendered_prediction)} with #{confidence}. " <>
+        "Expected #{inspect(expected)}." <> context <> alternatives
+    else
+      "Wrong (Incorrect): predicted #{inspect(rendered_prediction)} with #{confidence}. " <>
+        "Expected #{inspect(expected)}." <> context <> alternatives
+    end
+  end
+
+  defp confidence_text(nil), do: "unknown confidence"
+  defp confidence_text(probability), do: "probability #{format_probability(probability)}"
+
+  defp format_probability(probability), do: "#{Float.round(probability, 4)}"
+
+  defp context_text(context) when context in [nil, %{}], do: ""
+
+  defp context_text(context) do
+    " Additional context: #{inspect(context)}."
+  end
+
+  defp alternatives_text(trace) do
+    alternatives =
+      trace
+      |> get_any([:top_alternatives, :top_logprobs, "top_alternatives", "top_logprobs"])
+      |> normalize_alternatives()
+
+    case alternatives do
+      [] ->
+        ""
+
+      alternatives ->
+        " Top alternatives: #{Enum.map_join(alternatives, ", ", &format_alternative/1)}."
+    end
+  end
+
+  defp format_alternative(alt) do
+    resolved = get_any(alt, [:resolved_value, "resolved_value", :token, "token"])
+    probability = get_any(alt, [:probability, "probability"])
+
+    if is_number(probability) do
+      "#{resolved} (#{format_probability(probability)})"
+    else
+      "#{resolved}"
+    end
+  end
+
+  defp normalize_alternatives(nil), do: []
+
+  defp normalize_alternatives(alternatives) when is_list(alternatives) do
+    Enum.map(alternatives, fn
+      %{} = alt ->
+        %{
+          token: get_any(alt, [:token, "token"]),
+          probability: get_any(alt, [:probability, "probability"]),
+          resolved_value: get_any(alt, [:resolved_value, "resolved_value"])
+        }
+
+      alt ->
+        %{token: inspect(alt), probability: nil, resolved_value: nil}
+    end)
+  end
+
+  defp normalize_alternatives(_alternatives), do: []
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp normalize(%__MODULE__{normalizer: normalizer}, value) when is_function(normalizer, 1),
     do: normalizer.(value)
 
@@ -318,7 +445,13 @@ defmodule GEPA.Adapters.Confidence do
   defp get_any(nil, _keys), do: nil
 
   defp get_any(map, keys) when is_map(map) do
-    Enum.find_value(keys, &Map.get(map, &1))
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      if Map.has_key?(map, key) and not is_nil(Map.get(map, key)) do
+        {:halt, Map.fetch!(map, key)}
+      else
+        {:cont, nil}
+      end
+    end)
   end
 
   defp get_any(_other, _keys), do: nil
