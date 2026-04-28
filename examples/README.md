@@ -188,7 +188,10 @@ mix run examples/01_quick_start.exs -- \
 
 ### 02 Math Problems
 
-Runs a live GEPA optimization over math question/answer JSONL data.
+Runs a live GEPA optimization over AIME-style math question/answer JSONL data.
+The solver prompt is optimized while the selected live adapter answers each
+problem. Rows should contain `input` and a final numeric `answer`; `--simple`
+uses a tiny built-in arithmetic set for a quick live smoke.
 
 ```bash
 mix run examples/02_math_problems.exs -- \
