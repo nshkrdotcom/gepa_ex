@@ -60,19 +60,29 @@ defmodule GEPA.LM do
   def complete(lm_or_other, prompt, opts \\ [])
 
   def complete(%__MODULE__{} = lm, prompt, opts) do
-    tokens_in = estimate_tokens(prompt)
+    estimated_tokens_in = estimate_tokens(prompt)
     opts = Keyword.merge(lm.defaults, opts)
 
     result = complete_with_client(lm.client, lm.model, prompt, opts)
 
     case result do
+      {:ok, %Response{} = response} ->
+        text = response |> Response.text() |> String.trim()
+        estimated_tokens_out = estimate_tokens(text)
+
+        {tokens_in, tokens_out} =
+          response_token_counts(response, estimated_tokens_in, estimated_tokens_out)
+
+        update(lm, tokens_in, tokens_out, response_cost(response))
+        {:ok, text}
+
       {:ok, text} ->
         text = String.trim(text)
-        update(lm, tokens_in, estimate_tokens(text), 0.0)
+        update(lm, estimated_tokens_in, estimate_tokens(text), 0.0)
         {:ok, text}
 
       {:error, _} = error ->
-        update(lm, tokens_in, 0, 0.0)
+        update(lm, estimated_tokens_in, 0, 0.0)
         error
     end
   end
@@ -86,7 +96,7 @@ defmodule GEPA.LM do
 
     with {:ok, %Response{} = response} <- client.adapter.complete(client, request) do
       warn_if_truncated(response)
-      {:ok, Response.text(response)}
+      {:ok, response}
     end
   end
 
@@ -162,6 +172,49 @@ defmodule GEPA.LM do
 
   defp estimate_tokens(prompt) when is_binary(prompt), do: max(1, div(String.length(prompt), 4))
   defp estimate_tokens(prompt), do: prompt |> inspect() |> estimate_tokens()
+
+  defp response_token_counts(%Response{usage: nil}, _estimated_tokens_in, _estimated_tokens_out),
+    do: {0, 0}
+
+  defp response_token_counts(%Response{usage: usage}, estimated_tokens_in, estimated_tokens_out) do
+    usage = mapish(usage)
+
+    tokens_in =
+      usage_value(usage, [:prompt_tokens, "prompt_tokens", :input_tokens, "input_tokens"]) ||
+        estimated_tokens_in
+
+    tokens_out =
+      usage_value(usage, [
+        :completion_tokens,
+        "completion_tokens",
+        :output_tokens,
+        "output_tokens"
+      ]) || estimated_tokens_out
+
+    {tokens_in, tokens_out}
+  end
+
+  defp response_cost(%Response{cost: cost}) when is_number(cost), do: cost * 1.0
+
+  defp response_cost(%Response{cost: cost}) do
+    cost
+    |> mapish()
+    |> usage_value([:total_cost, "total_cost", :cost, "cost", :total, "total"])
+    |> case do
+      value when is_number(value) -> value * 1.0
+      _value -> 0.0
+    end
+  end
+
+  defp mapish(nil), do: nil
+  defp mapish(%_struct{} = value), do: Map.from_struct(value)
+  defp mapish(%{} = value), do: value
+
+  defp usage_value(nil, _keys), do: nil
+
+  defp usage_value(%{} = usage, keys) do
+    Enum.find_value(keys, &Map.get(usage, &1))
+  end
 end
 
 defmodule GEPA.LM.Tracking do
