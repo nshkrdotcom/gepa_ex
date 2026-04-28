@@ -289,6 +289,87 @@ defmodule GEPA.Proposer.MergeTest do
         assert is_list(proposal.subsample_scores_after)
       end
     end
+
+    test "creates combined program and records triplet and descriptor after merge proposal" do
+      proposer =
+        Merge.new(
+          valset: ListLoader.new([%{id: 0}, %{id: 1}]),
+          evaluator: fn batch, _prog ->
+            {batch, Enum.map(batch, fn _ -> 0.9 end)}
+          end,
+          use_merge: true,
+          max_merge_invocations: 5,
+          val_overlap_floor: 2,
+          seed: 0
+        )
+
+      proposer = %{proposer | merges_due: 1, last_iter_found_new_program: true}
+
+      state =
+        create_state_for_official_merge(
+          [%{"pred" => "A"}, %{"pred" => "A"}, %{"pred" => "B"}],
+          [%{0 => 0.1, 1 => 0.1}, %{0 => 0.7, 1 => 0.7}, %{0 => 0.6, 1 => 0.6}],
+          %{0 => MapSet.new([1]), 1 => MapSet.new([2])}
+        )
+
+      assert {%CandidateProposal{} = proposal, new_proposer} = Merge.propose(proposer, state)
+      assert proposal.candidate == %{"pred" => "B"}
+      assert proposal.parent_program_ids == [1, 2]
+      assert proposal.metadata.ancestor == 0
+      assert new_proposer.merges_performed == {[{1, 2, 0}], [[{"pred", 2}]]}
+
+      assert {nil, _same_proposer} = Merge.propose(new_proposer, state)
+    end
+
+    test "skips merge when validation support overlap is below floor" do
+      proposer =
+        Merge.new(
+          valset: ListLoader.new([%{id: 0}, %{id: 1}, %{id: 2}]),
+          evaluator: fn batch, _prog -> {batch, Enum.map(batch, fn _ -> 0.9 end)} end,
+          use_merge: true,
+          max_merge_invocations: 5,
+          val_overlap_floor: 2,
+          seed: 0
+        )
+
+      proposer = %{proposer | merges_due: 1, last_iter_found_new_program: true}
+
+      state =
+        create_state_for_official_merge(
+          [%{"pred" => "A"}, %{"pred" => "A"}, %{"pred" => "B"}],
+          [%{0 => 0.1, 1 => 0.1}, %{0 => 0.7, 1 => 0.7}, %{1 => 0.6, 2 => 0.6}],
+          %{0 => MapSet.new([1]), 1 => MapSet.new([2])}
+        )
+
+      assert {nil, new_proposer} = Merge.propose(proposer, state)
+      assert new_proposer.merges_performed == {[], []}
+    end
+
+    test "allows merge when validation support overlap meets floor" do
+      proposer =
+        Merge.new(
+          valset: ListLoader.new([%{id: 0}, %{id: 1}]),
+          evaluator: fn batch, _prog -> {batch, Enum.map(batch, fn _ -> 0.9 end)} end,
+          use_merge: true,
+          max_merge_invocations: 5,
+          val_overlap_floor: 2,
+          seed: 0
+        )
+
+      proposer = %{proposer | merges_due: 1, last_iter_found_new_program: true}
+
+      state =
+        create_state_for_official_merge(
+          [%{"pred" => "A"}, %{"pred" => "A"}, %{"pred" => "B"}],
+          [%{0 => 0.1, 1 => 0.1}, %{0 => 0.7, 1 => 0.7}, %{0 => 0.6, 1 => 0.6}],
+          %{0 => MapSet.new([1]), 1 => MapSet.new([2])}
+        )
+
+      assert {%CandidateProposal{} = proposal, new_proposer} = Merge.propose(proposer, state)
+      assert proposal.parent_program_ids == [1, 2]
+      assert proposal.metadata.ancestor == 0
+      assert new_proposer.merges_performed == {[{1, 2, 0}], [[{"pred", 2}]]}
+    end
   end
 
   # Helper functions to create test states
@@ -347,5 +428,18 @@ defmodule GEPA.Proposer.MergeTest do
 
   defp create_good_mergeable_state do
     create_mergeable_state()
+  end
+
+  defp create_state_for_official_merge(program_candidates, subscores, pareto_fronts) do
+    seed = hd(program_candidates)
+    eval_batch = %EvaluationBatch{outputs: ["seed0", "seed1"], scores: [0.1, 0.1]}
+
+    %State{
+      State.new(seed, eval_batch, [0, 1])
+      | program_candidates: program_candidates,
+        parent_program_for_candidate: [[], [0], [0]],
+        prog_candidate_val_subscores: subscores,
+        program_at_pareto_front_valset: pareto_fronts
+    }
   end
 end
