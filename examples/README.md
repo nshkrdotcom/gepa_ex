@@ -142,6 +142,7 @@ mix run examples/11_refiner.exs -- --simple
 mix run examples/12_tracking.exs -- --simple
 mix run examples/13_adrs_cloud_optimization.exs -- --simple
 mix run examples/14_arc_grid.exs -- --simple
+mix run examples/15_blackbox_search.exs -- --simple
 ```
 
 You can combine `--simple` with explicit backend selection:
@@ -332,6 +333,21 @@ mix run examples/14_arc_grid.exs -- --simple
 Expected output includes `ARC Grid Optimization Complete`, the best validation
 score, and the best instruction. If exact JSON matching is brittle for a
 provider, make the `answer` string and task prompt agree on compact formatting.
+
+### 15 Blackbox Search
+
+Optimizes executable Elixir search code for a small blackbox minimization
+problem. The evaluator executes candidate code with `GEPA.CodeExecution`, tracks
+objective-call budget use, and feeds prior best trials back into later
+proposals.
+
+```bash
+mix run examples/15_blackbox_search.exs -- --simple
+```
+
+Expected output includes `Blackbox Search Optimization Complete`, the best
+transformed score, and the best candidate code. If generated code fails, the
+feedback includes execution errors and budget details.
 
 ## Run Everything
 
