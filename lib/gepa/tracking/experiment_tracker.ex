@@ -58,15 +58,17 @@ defmodule GEPA.Tracking.ExperimentTracker do
     columns = Keyword.get(opts, :columns)
     key = prefix(tracker, name)
 
-    Agent.update(tracker.agent, fn state ->
-      Map.update!(state, :tables, fn tables ->
-        Map.update(tables, key, %{columns: columns, rows: List.wrap(rows)}, fn existing ->
-          %{existing | rows: existing.rows ++ List.wrap(rows)}
-        end)
-      end)
-    end)
+    Agent.update(tracker.agent, &update_table_state(&1, key, columns, List.wrap(rows)))
 
     :ok
+  end
+
+  defp update_table_state(state, key, columns, new_rows) do
+    Map.update!(state, :tables, fn tables ->
+      Map.update(tables, key, %{columns: columns, rows: new_rows}, fn existing ->
+        %{existing | rows: existing.rows ++ new_rows}
+      end)
+    end)
   end
 
   def log_html(%__MODULE__{} = tracker, html, key \\ "candidate_tree") do

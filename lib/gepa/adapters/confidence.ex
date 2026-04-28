@@ -80,23 +80,20 @@ defmodule GEPA.Adapters.Confidence do
     if trajectories == [] do
       {:error, :missing_trajectories}
     else
-      dataset =
-        Map.new(components_to_update, fn component ->
-          rows =
-            Enum.map(trajectories, fn trace ->
-              %{
-                "Inputs" => Map.take(trace, [:input, :additional_context]),
-                "Generated Outputs" => trace.output,
-                "Feedback" => build_feedback(trace),
-                "Scores" => trace.objective_scores
-              }
-            end)
-
-          {component, rows}
-        end)
-
+      dataset = Map.new(components_to_update, &{&1, build_rows(trajectories)})
       {:ok, dataset}
     end
+  end
+
+  defp build_rows(trajectories) do
+    Enum.map(trajectories, fn trace ->
+      %{
+        "Inputs" => Map.take(trace, [:input, :additional_context]),
+        "Generated Outputs" => trace.output,
+        "Feedback" => build_feedback(trace),
+        "Scores" => trace.objective_scores
+      }
+    end)
   end
 
   @doc "Extract a nested field from a decoded JSON map."
@@ -329,11 +326,9 @@ defmodule GEPA.Adapters.Confidence do
   defp safe_atom(value) when is_atom(value), do: value
 
   defp safe_atom(value) when is_binary(value) do
-    try do
-      String.to_existing_atom(value)
-    rescue
-      ArgumentError -> nil
-    end
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError -> nil
   end
 
   defp safe_atom(_), do: nil

@@ -13,13 +13,7 @@ defmodule GEPA.LLM do
   @type prompt :: String.t() | [map()]
   @type t :: module() | map() | Client.t() | function()
 
-  @type completion_opts :: [
-          temperature: float(),
-          max_tokens: pos_integer(),
-          top_p: float(),
-          model: String.t(),
-          timeout: pos_integer()
-        ]
+  @type completion_opts :: keyword()
 
   @type structured_result :: {:ok, map()} | {:error, term()}
 

@@ -452,8 +452,7 @@ defmodule GEPA.Engine do
   defp proposal_metric_calls(%CandidateProposal{metadata: metadata} = proposal) do
     Map.get(metadata, :num_metric_calls) ||
       Map.get(metadata, "num_metric_calls") ||
-      length(proposal.subsample_scores_before || []) +
-        length(proposal.subsample_scores_after || [])
+      length(proposal.subsample_scores_before) + length(proposal.subsample_scores_after)
   end
 
   defp add_metric_calls(state, 0), do: state

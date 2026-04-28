@@ -72,85 +72,80 @@ defmodule GEPA.Adapters.GenericRAG do
     if trajectories == [] do
       {:error, :missing_trajectories}
     else
-      dataset =
-        Map.new(components_to_update, fn component ->
-          rows =
-            Enum.map(trajectories, fn trace ->
-              %{
-                "Inputs" => %{"query" => trace.original_query},
-                "Generated Outputs" => %{
-                  "reformulated_query" => trace.reformulated_query,
-                  "context" => trace.synthesized_context,
-                  "answer" => trace.generated_answer
-                },
-                "Feedback" => feedback_for_component(component, trace),
-                "Scores" => trace.objective_scores
-              }
-            end)
-
-          {component, rows}
-        end)
-
+      dataset = Map.new(components_to_update, &{&1, build_rows_for_component(&1, trajectories)})
       {:ok, dataset}
     end
   end
 
-  defp evaluate_one(%__MODULE__{} = adapter, example, candidate) do
-    try do
-      trace =
-        Pipeline.run(adapter.pipeline, normalize_example(example), stringify_candidate(candidate))
-
-      retrieval_metrics =
-        Metrics.evaluate_retrieval(
-          trace.retrieved_docs,
-          get_any(example, [:relevant_doc_ids, "relevant_doc_ids"]) || []
-        )
-
-      generation_metrics =
-        Metrics.evaluate_generation(
-          trace.generated_answer,
-          get_any(example, [:ground_truth_answer, "ground_truth_answer", :answer, "answer"]) ||
-            "",
-          trace.synthesized_context
-        )
-
-      score =
-        Metrics.combined_rag_score(retrieval_metrics, generation_metrics,
-          retrieval_weight: config_get(adapter.config, :retrieval_weight, 0.3),
-          generation_weight: config_get(adapter.config, :generation_weight, 0.7)
-        )
-
-      objective_scores = Map.merge(retrieval_metrics, generation_metrics)
-
-      trajectory =
-        trace
-        |> Map.put(:score, score)
-        |> Map.put(:objective_scores, objective_scores)
-        |> Map.put(
-          :ground_truth_answer,
-          get_any(example, [:ground_truth_answer, "ground_truth_answer", :answer, "answer"])
-        )
-
+  defp build_rows_for_component(component, trajectories) do
+    Enum.map(trajectories, fn trace ->
       %{
-        output: trace.generated_answer,
-        score: score,
-        objective_scores: objective_scores,
-        trajectory: trajectory
+        "Inputs" => %{"query" => trace.original_query},
+        "Generated Outputs" => %{
+          "reformulated_query" => trace.reformulated_query,
+          "context" => trace.synthesized_context,
+          "answer" => trace.generated_answer
+        },
+        "Feedback" => feedback_for_component(component, trace),
+        "Scores" => trace.objective_scores
       }
-    rescue
-      exception ->
-        %{
-          output: %{error: Exception.message(exception)},
+    end)
+  end
+
+  defp evaluate_one(%__MODULE__{} = adapter, example, candidate) do
+    trace =
+      Pipeline.run(adapter.pipeline, normalize_example(example), stringify_candidate(candidate))
+
+    retrieval_metrics =
+      Metrics.evaluate_retrieval(
+        trace.retrieved_docs,
+        get_any(example, [:relevant_doc_ids, "relevant_doc_ids"]) || []
+      )
+
+    generation_metrics =
+      Metrics.evaluate_generation(
+        trace.generated_answer,
+        get_any(example, [:ground_truth_answer, "ground_truth_answer", :answer, "answer"]) ||
+          "",
+        trace.synthesized_context
+      )
+
+    score =
+      Metrics.combined_rag_score(retrieval_metrics, generation_metrics,
+        retrieval_weight: config_get(adapter.config, :retrieval_weight, 0.3),
+        generation_weight: config_get(adapter.config, :generation_weight, 0.7)
+      )
+
+    objective_scores = Map.merge(retrieval_metrics, generation_metrics)
+
+    trajectory =
+      trace
+      |> Map.put(:score, score)
+      |> Map.put(:objective_scores, objective_scores)
+      |> Map.put(
+        :ground_truth_answer,
+        get_any(example, [:ground_truth_answer, "ground_truth_answer", :answer, "answer"])
+      )
+
+    %{
+      output: trace.generated_answer,
+      score: score,
+      objective_scores: objective_scores,
+      trajectory: trajectory
+    }
+  rescue
+    exception ->
+      %{
+        output: %{error: Exception.message(exception)},
+        score: adapter.failure_score,
+        objective_scores: %{"error" => 1.0},
+        trajectory: %{
+          original_query: get_any(example, [:query, "query", :input, "input"]),
+          error: Exception.format(:error, exception, __STACKTRACE__),
           score: adapter.failure_score,
-          objective_scores: %{"error" => 1.0},
-          trajectory: %{
-            original_query: get_any(example, [:query, "query", :input, "input"]),
-            error: Exception.format(:error, exception, __STACKTRACE__),
-            score: adapter.failure_score,
-            objective_scores: %{"error" => 1.0}
-          }
+          objective_scores: %{"error" => 1.0}
         }
-    end
+      }
   end
 
   defp feedback_for_component("query_reformulation", trace) do

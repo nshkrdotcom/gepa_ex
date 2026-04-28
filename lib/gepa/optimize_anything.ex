@@ -907,8 +907,8 @@ defmodule GEPA.OptimizeAnything do
   """
 
   alias GEPA.LLM.Mock, as: LLMMock
-  alias GEPA.Seed
   alias GEPA.OptimizeAnything.{Adapter, Config, LogContext}
+  alias GEPA.Seed
 
   @str_candidate_key "current_candidate"
   @default_refiner_prompt """

@@ -29,7 +29,9 @@ defmodule GEPA.LM do
 
   @spec complete(t() | term(), GEPA.LLM.prompt(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
-  def complete(%__MODULE__{} = lm, prompt, opts \\ []) do
+  def complete(lm_or_other, prompt, opts \\ [])
+
+  def complete(%__MODULE__{} = lm, prompt, opts) do
     tokens_in = estimate_tokens(prompt)
 
     result = GEPA.LLM.complete(lm.client, prompt, Keyword.merge(lm.defaults, opts))

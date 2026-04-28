@@ -33,15 +33,15 @@ defmodule GEPA.Adapter.Dispatch do
     module = module_for(adapter)
 
     cond do
-      is_atom(module) and function_exported?(module, :evaluate, 4) ->
+      module != nil and function_exported?(module, :evaluate, 4) ->
         module.evaluate(adapter, batch, candidate, capture_traces)
         |> normalize_eval_batch()
 
-      is_atom(module) and function_exported?(module, :evaluate, 3) ->
+      module != nil and function_exported?(module, :evaluate, 3) ->
         module.evaluate(batch, candidate, capture_traces)
         |> normalize_eval_batch()
 
-      is_atom(module) and function_exported?(module, :evaluate, 2) ->
+      module != nil and function_exported?(module, :evaluate, 2) ->
         module.evaluate(batch, candidate)
         |> normalize_eval_batch()
 
@@ -59,11 +59,11 @@ defmodule GEPA.Adapter.Dispatch do
     module = module_for(adapter)
 
     cond do
-      is_atom(module) and function_exported?(module, :make_reflective_dataset, 4) ->
+      module != nil and function_exported?(module, :make_reflective_dataset, 4) ->
         module.make_reflective_dataset(adapter, candidate, eval_batch, components)
         |> normalize_dataset()
 
-      is_atom(module) and function_exported?(module, :make_reflective_dataset, 3) ->
+      module != nil and function_exported?(module, :make_reflective_dataset, 3) ->
         module.make_reflective_dataset(candidate, eval_batch, components)
         |> normalize_dataset()
 
@@ -81,11 +81,11 @@ defmodule GEPA.Adapter.Dispatch do
     module = module_for(adapter)
 
     cond do
-      is_atom(module) and function_exported?(module, :propose_new_texts, 4) ->
+      module != nil and function_exported?(module, :propose_new_texts, 4) ->
         module.propose_new_texts(adapter, candidate, reflective_dataset, components)
         |> normalize_new_texts()
 
-      is_atom(module) and function_exported?(module, :propose_new_texts, 3) ->
+      module != nil and function_exported?(module, :propose_new_texts, 3) ->
         module.propose_new_texts(candidate, reflective_dataset, components)
         |> normalize_new_texts()
 
@@ -101,7 +101,7 @@ defmodule GEPA.Adapter.Dispatch do
   def get_adapter_state(adapter) do
     module = module_for(adapter)
 
-    if is_atom(module) and function_exported?(module, :get_adapter_state, 1) do
+    if module != nil and function_exported?(module, :get_adapter_state, 1) do
       case module.get_adapter_state(adapter) do
         {:ok, state} when is_map(state) -> state
         state when is_map(state) -> state
@@ -119,7 +119,7 @@ defmodule GEPA.Adapter.Dispatch do
   def set_adapter_state(adapter, state) when is_map(state) do
     module = module_for(adapter)
 
-    if is_atom(module) and function_exported?(module, :set_adapter_state, 2) do
+    if module != nil and function_exported?(module, :set_adapter_state, 2) do
       module.set_adapter_state(adapter, state)
     else
       :ok

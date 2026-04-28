@@ -307,17 +307,17 @@ defmodule GEPA.Adapters.MCP do
 
   defp normalize_example(example) when is_map(example) do
     %{
-      user_query:
-        Map.get(example, :user_query) || Map.get(example, "user_query") ||
-          Map.get(example, :input) || Map.get(example, "input"),
-      tool_arguments:
-        Map.get(example, :tool_arguments) || Map.get(example, "tool_arguments") || %{},
+      user_query: get_any_key(example, [:user_query, "user_query", :input, "input"]),
+      tool_arguments: get_any_key(example, [:tool_arguments, "tool_arguments"]) || %{},
       reference_answer:
-        Map.get(example, :reference_answer) || Map.get(example, "reference_answer") ||
-          Map.get(example, :answer) || Map.get(example, "answer"),
-      expected_tool: Map.get(example, :expected_tool) || Map.get(example, "expected_tool"),
-      metadata: Map.get(example, :metadata) || Map.get(example, "metadata") || %{}
+        get_any_key(example, [:reference_answer, "reference_answer", :answer, "answer"]),
+      expected_tool: get_any_key(example, [:expected_tool, "expected_tool"]),
+      metadata: get_any_key(example, [:metadata, "metadata"]) || %{}
     }
+  end
+
+  defp get_any_key(map, keys) do
+    Enum.find_value(keys, &Map.get(map, &1))
   end
 
   defp result_to_answer(result) when is_binary(result), do: result

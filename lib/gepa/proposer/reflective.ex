@@ -234,8 +234,8 @@ defmodule GEPA.Proposer.Reflective do
 
   defp subsample_eval(eval_batch) do
     %SubsampleEvaluation{
-      scores: eval_batch.scores || [],
-      outputs: eval_batch.outputs || [],
+      scores: eval_batch.scores,
+      outputs: eval_batch.outputs,
       objective_scores: eval_batch.objective_scores,
       trajectories: eval_batch.trajectories
     }

@@ -19,12 +19,10 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore do
   def hybrid_search(store, query, k \\ 5, _alpha \\ 0.5) do
     module = adapter_module(store)
 
-    cond do
-      is_atom(module) and function_exported?(module, :hybrid_search, 4) ->
-        module.hybrid_search(store, query, k, 0.5)
-
-      true ->
-        similarity_search(store, query, k, nil)
+    if module != nil and function_exported?(module, :hybrid_search, 4) do
+      module.hybrid_search(store, query, k, 0.5)
+    else
+      similarity_search(store, query, k, nil)
     end
   end
 
