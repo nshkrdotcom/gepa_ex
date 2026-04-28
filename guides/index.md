@@ -35,5 +35,6 @@ Use these guides as the learning path for the Elixir port.
 
 ## Reference Help
 
+- [Upstream API Parity](upstream_api_parity.md)
 - [FAQ](faq.md)
 - [Contributing](contributing.md)

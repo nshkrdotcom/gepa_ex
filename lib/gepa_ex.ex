@@ -1,19 +1,7 @@
 defmodule GepaEx do
-  @moduledoc """
-  Documentation for `GepaEx`.
-  """
+  @moduledoc false
 
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> GepaEx.hello()
-      :world
-
-  """
-  @spec hello() :: :world
-  def hello do
-    :world
-  end
+  defdelegate optimize(opts), to: GEPA
+  defdelegate optimize_anything(opts), to: GEPA
+  defdelegate default_adapter(opts), to: GEPA
 end

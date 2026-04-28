@@ -59,6 +59,25 @@ defmodule GEPA do
   alias GEPA.Strategies.EvaluationPolicy.Full
 
   @doc """
+  Build the official-style default adapter.
+
+  This is a top-level convenience for callers coming from the upstream Python
+  surface. It delegates to `GEPA.Adapters.Default.new/1`.
+  """
+  @spec default_adapter(keyword()) :: Default.t()
+  def default_adapter(opts), do: Default.new(opts)
+
+  @doc """
+  Optimize an arbitrary candidate/evaluator pair.
+
+  This top-level entrypoint mirrors upstream `gepa.optimize_anything` while the
+  implementation lives in `GEPA.OptimizeAnything.optimize_anything/1`.
+  """
+  @spec optimize_anything(keyword() | map() | GEPA.OptimizeAnything.Config.t()) ::
+          {:ok, GEPA.Result.t()} | {:error, term()}
+  def optimize_anything(opts), do: GEPA.OptimizeAnything.optimize_anything(opts)
+
+  @doc """
   Run GEPA optimization.
 
   ## Options

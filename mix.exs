@@ -103,6 +103,7 @@ defmodule GepaEx.MixProject do
         "guides/confidence_adapter.md",
         "guides/generic_rag.md",
         "guides/examples_and_livebooks.md",
+        "guides/upstream_api_parity.md",
         "guides/faq.md",
         "guides/contributing.md",
         {"examples/README.md", title: "Examples"},
@@ -132,6 +133,7 @@ defmodule GepaEx.MixProject do
           "guides/confidence_adapter.md",
           "guides/generic_rag.md",
           "guides/examples_and_livebooks.md",
+          "guides/upstream_api_parity.md",
           "guides/faq.md",
           "guides/contributing.md"
         ],
