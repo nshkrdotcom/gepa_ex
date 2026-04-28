@@ -53,6 +53,56 @@ defmodule GEPA.Tracking.ExperimentTrackerUpstreamParityTest do
   end
 
   describe "factory and config wiring" do
+    test "creates wandb-only tracker" do
+      tracker =
+        Tracking.create_experiment_tracker(
+          use_wandb: true,
+          wandb_api_key: "test_key",
+          use_mlflow: false
+        )
+
+      assert %ExperimentTracker{} = tracker
+      assert tracker.use_wandb
+      refute tracker.use_mlflow
+      assert tracker.wandb_api_key == "test_key"
+    end
+
+    test "creates mlflow-only tracker" do
+      tracker =
+        Tracking.create_experiment_tracker(
+          use_wandb: false,
+          use_mlflow: true,
+          mlflow_tracking_uri: "file:///tmp/mlflow"
+        )
+
+      assert %ExperimentTracker{} = tracker
+      refute tracker.use_wandb
+      assert tracker.use_mlflow
+      assert tracker.mlflow_tracking_uri == "file:///tmp/mlflow"
+    end
+
+    test "creates tracker with both backends" do
+      tracker =
+        Tracking.create_experiment_tracker(
+          use_wandb: true,
+          wandb_api_key: "test_key",
+          use_mlflow: true,
+          mlflow_tracking_uri: "file:///tmp/mlflow"
+        )
+
+      assert %ExperimentTracker{} = tracker
+      assert tracker.use_wandb
+      assert tracker.use_mlflow
+    end
+
+    test "creates tracker with no backends" do
+      tracker = Tracking.create_experiment_tracker(use_wandb: false, use_mlflow: false)
+
+      assert %ExperimentTracker{} = tracker
+      refute tracker.use_wandb
+      refute tracker.use_mlflow
+    end
+
     test "factory preserves attach-existing defaults and flags" do
       default = Tracking.create_experiment_tracker()
       assert default.wandb_attach_existing == false
@@ -207,9 +257,287 @@ defmodule GEPA.Tracking.ExperimentTrackerUpstreamParityTest do
     end
   end
 
+  describe "upstream integration lifecycle parity" do
+    test "no backends works" do
+      tracker = Tracking.create_experiment_tracker(use_wandb: false, use_mlflow: false)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 assert ExperimentTracker.active?(tracker)
+                 ExperimentTracker.log_metrics(tracker, %{test: 1.0}, step: 1)
+               end)
+
+      refute ExperimentTracker.active?(tracker)
+      assert [%{step: 1, metrics: %{"test" => 1.0}}] = ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "wandb offline initialization" do
+      tmp_dir = tmp_dir("wandb")
+      tracker = ExperimentTracker.new(use_wandb: true, wandb_init_kwargs: %{dir: tmp_dir})
+
+      assert :ok = ExperimentTracker.start_run(tracker)
+      assert :ok = ExperimentTracker.log_metrics(tracker, %{loss: 0.5, accuracy: 0.9}, step: 1)
+      assert :ok = ExperimentTracker.log_metrics(tracker, %{loss: 0.4, accuracy: 0.95}, step: 2)
+      assert ExperimentTracker.active?(tracker)
+      assert :ok = ExperimentTracker.end_run(tracker)
+      refute ExperimentTracker.active?(tracker)
+
+      assert [
+               %{step: 1, metrics: %{"loss" => 0.5, "accuracy" => 0.9}},
+               %{step: 2, metrics: %{"loss" => 0.4, "accuracy" => 0.95}}
+             ] = ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "mlflow initialization creates local tracking directory" do
+      tmp_dir = tmp_dir("mlflow")
+      tracking_dir = Path.join(tmp_dir, "mlflow")
+
+      tracker =
+        ExperimentTracker.new(
+          use_mlflow: true,
+          mlflow_tracking_uri: "file://#{tracking_dir}",
+          mlflow_experiment_name: "test-experiment"
+        )
+
+      assert :ok = ExperimentTracker.start_run(tracker)
+      assert File.dir?(tracking_dir)
+      assert :ok = ExperimentTracker.log_metrics(tracker, %{loss: 0.5, accuracy: 0.9}, step: 1)
+      assert ExperimentTracker.active?(tracker)
+      assert :ok = ExperimentTracker.end_run(tracker)
+      refute ExperimentTracker.active?(tracker)
+    end
+
+    test "both backends offline" do
+      tmp_dir = tmp_dir("both")
+
+      tracker =
+        ExperimentTracker.new(
+          use_wandb: true,
+          wandb_init_kwargs: %{dir: tmp_dir},
+          use_mlflow: true,
+          mlflow_tracking_uri: "file://#{Path.join(tmp_dir, "mlflow")}",
+          mlflow_experiment_name: "test-experiment"
+        )
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 assert ExperimentTracker.active?(tracker)
+                 ExperimentTracker.log_metrics(tracker, %{loss: 0.4, accuracy: 0.95})
+               end)
+
+      refute ExperimentTracker.active?(tracker)
+
+      assert [%{metrics: %{"loss" => 0.4, "accuracy" => 0.95}}] =
+               ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "context manager wandb" do
+      tracker = ExperimentTracker.new(use_wandb: true)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 assert ExperimentTracker.active?(tracker)
+                 ExperimentTracker.log_metrics(tracker, %{loss: 0.5}, step: 1)
+                 ExperimentTracker.log_metrics(tracker, %{accuracy: 0.9}, step: 2)
+               end)
+
+      refute ExperimentTracker.active?(tracker)
+
+      assert [
+               %{step: 1, metrics: %{"loss" => 0.5}},
+               %{step: 2, metrics: %{"accuracy" => 0.9}}
+             ] = ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "context manager mlflow" do
+      tracker = ExperimentTracker.new(use_mlflow: true)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 assert ExperimentTracker.active?(tracker)
+                 ExperimentTracker.log_metrics(tracker, %{loss: 0.5}, step: 1)
+                 ExperimentTracker.log_metrics(tracker, %{accuracy: 0.9}, step: 2)
+               end)
+
+      refute ExperimentTracker.active?(tracker)
+    end
+
+    test "context manager both backends" do
+      tracker = ExperimentTracker.new(use_wandb: true, use_mlflow: true)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 assert ExperimentTracker.active?(tracker)
+                 ExperimentTracker.log_metrics(tracker, %{loss: 0.5}, step: 1)
+                 ExperimentTracker.log_metrics(tracker, %{accuracy: 0.9}, step: 2)
+               end)
+
+      refute ExperimentTracker.active?(tracker)
+
+      assert [
+               %{step: 1, metrics: %{"loss" => 0.5}},
+               %{step: 2, metrics: %{"accuracy" => 0.9}}
+             ] = ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "context manager with exception wandb" do
+      tracker = ExperimentTracker.new(use_wandb: true)
+
+      assert_raise ArgumentError, "test exception", fn ->
+        ExperimentTracker.with_run(tracker, fn ->
+          ExperimentTracker.log_metrics(tracker, %{test: 1.0}, step: 1)
+          raise ArgumentError, "test exception"
+        end)
+      end
+
+      refute ExperimentTracker.active?(tracker)
+      assert [%{step: 1, metrics: %{"test" => 1.0}}] = ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "context manager with exception mlflow" do
+      tracker = ExperimentTracker.new(use_mlflow: true)
+
+      assert_raise ArgumentError, "test exception", fn ->
+        ExperimentTracker.with_run(tracker, fn ->
+          ExperimentTracker.log_metrics(tracker, %{test: 1.0}, step: 1)
+          raise ArgumentError, "test exception"
+        end)
+      end
+
+      refute ExperimentTracker.active?(tracker)
+    end
+
+    test "mlflow experiment creation" do
+      tmp_dir = tmp_dir("mlflow-experiment")
+      tracking_dir = Path.join(tmp_dir, "mlflow")
+
+      tracker =
+        ExperimentTracker.new(
+          use_mlflow: true,
+          mlflow_tracking_uri: "file://#{tracking_dir}",
+          mlflow_experiment_name: "test-experiment"
+        )
+
+      assert :ok = ExperimentTracker.initialize(tracker)
+      assert File.dir?(tracking_dir)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 ExperimentTracker.log_metrics(tracker, %{test: 1.0}, step: 1)
+               end)
+    end
+
+    test "metric logging variations wandb" do
+      tracker = ExperimentTracker.new(use_wandb: true)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 ExperimentTracker.log_metrics(tracker, %{loss: 0.5}, step: 1)
+                 ExperimentTracker.log_metrics(tracker, %{accuracy: 0.9, f1: 0.85}, step: 2)
+                 ExperimentTracker.log_metrics(tracker, %{learning_rate: 0.001}, step: 3)
+                 ExperimentTracker.log_metrics(tracker, %{final_loss: 0.1})
+                 ExperimentTracker.log_metrics(tracker, %{test_metric: 42}, step: nil)
+               end)
+
+      assert [
+               %{step: 1, metrics: %{"loss" => 0.5}},
+               %{step: 2, metrics: %{"accuracy" => 0.9, "f1" => 0.85}},
+               %{step: 3, metrics: %{"learning_rate" => 0.001}},
+               %{step: nil, metrics: %{"final_loss" => 0.1}},
+               %{step: nil, metrics: %{"test_metric" => 42}}
+             ] = ExperimentTracker.snapshot(tracker).metrics
+    end
+
+    test "mlflow nested run handling" do
+      outer = ExperimentTracker.new(use_mlflow: true)
+      inner = ExperimentTracker.new(use_mlflow: true)
+
+      assert :ok = ExperimentTracker.start_run(outer)
+      assert ExperimentTracker.active?(outer)
+
+      assert :ok =
+               ExperimentTracker.with_run(inner, fn ->
+                 ExperimentTracker.log_metrics(inner, %{inner_metric: 1.0}, step: 1)
+               end)
+
+      assert ExperimentTracker.active?(outer)
+      assert :ok = ExperimentTracker.log_metrics(outer, %{outer_metric: 2.0})
+      assert :ok = ExperimentTracker.end_run(outer)
+      refute ExperimentTracker.active?(outer)
+    end
+
+    test "metric logging variations mlflow" do
+      tracker = ExperimentTracker.new(use_mlflow: true)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 ExperimentTracker.log_metrics(tracker, %{loss: 0.5}, step: 1)
+                 ExperimentTracker.log_metrics(tracker, %{accuracy: 0.9, f1: 0.85}, step: 2)
+                 ExperimentTracker.log_metrics(tracker, %{learning_rate: 0.001}, step: 3)
+                 ExperimentTracker.log_metrics(tracker, %{final_loss: 0.1})
+                 ExperimentTracker.log_metrics(tracker, %{test_metric: 42}, step: nil)
+               end)
+
+      flattened_metrics =
+        tracker
+        |> ExperimentTracker.snapshot()
+        |> Map.fetch!(:metrics)
+        |> Enum.flat_map(&Map.to_list(&1.metrics))
+        |> Map.new()
+
+      assert flattened_metrics["loss"] == 0.5
+      assert flattened_metrics["accuracy"] == 0.9
+      assert flattened_metrics["f1"] == 0.85
+      assert flattened_metrics["learning_rate"] == 0.001
+      assert flattened_metrics["final_loss"] == 0.1
+      assert flattened_metrics["test_metric"] == 42
+    end
+
+    test "mlflow filters non numeric metrics" do
+      tracker = ExperimentTracker.new(use_mlflow: true)
+
+      assert :ok =
+               ExperimentTracker.with_run(tracker, fn ->
+                 ExperimentTracker.log_metrics(
+                   tracker,
+                   %{
+                     loss: 0.5,
+                     accuracy: 0.9,
+                     iteration: 10,
+                     total_metric_calls: 100,
+                     model_name: "gpt-4",
+                     config: %{lr: 0.001, batch_size: 32},
+                     tags: ["train", "v1"]
+                   },
+                   step: 1
+                 )
+               end)
+
+      assert [%{metrics: metrics}] = ExperimentTracker.snapshot(tracker).metrics
+      assert metrics["loss"] == 0.5
+      assert metrics["accuracy"] == 0.9
+      assert metrics["iteration"] == 10
+      assert metrics["total_metric_calls"] == 100
+      refute Map.has_key?(metrics, "model_name")
+      refute Map.has_key?(metrics, "config")
+      refute Map.has_key?(metrics, "tags")
+    end
+  end
+
   defp passthrough_proposer do
     fn candidate, _dataset, components ->
       Map.new(components, &{&1, Map.fetch!(candidate, &1)})
     end
+  end
+
+  defp tmp_dir(label) do
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "gepa-tracking-#{label}-#{System.unique_integer([:positive])}"
+      )
+
+    on_exit(fn -> File.rm_rf(path) end)
+    path
   end
 end

@@ -81,11 +81,42 @@ defmodule GEPA.Tracking.ExperimentTracker do
       if attach_existing?(tracker) do
         %{state | attached?: true}
       else
-        %{state | started?: true, start_count: state.start_count + 1}
+        %{state | started?: true, finished?: false, start_count: state.start_count + 1}
       end
     end)
 
     :ok
+  end
+
+  def initialize(%__MODULE__{} = tracker) do
+    maybe_create_mlflow_dir(tracker.mlflow_tracking_uri)
+    :ok
+  end
+
+  def start_run(%__MODULE__{} = tracker) do
+    with :ok <- initialize(tracker) do
+      start(tracker)
+    end
+  end
+
+  def end_run(%__MODULE__{} = tracker), do: finish(tracker)
+
+  def active?(%__MODULE__{} = tracker) do
+    snapshot = snapshot(tracker)
+    snapshot.started? and not snapshot.finished?
+  end
+
+  # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
+  def is_active(%__MODULE__{} = tracker), do: active?(tracker)
+
+  def with_run(%__MODULE__{} = tracker, fun) when is_function(fun) do
+    :ok = start_run(tracker)
+
+    try do
+      call_with_tracker(fun, tracker)
+    after
+      end_run(tracker)
+    end
   end
 
   def log_config(%__MODULE__{} = tracker, config) when is_map(config) do
@@ -178,6 +209,22 @@ defmodule GEPA.Tracking.ExperimentTracker do
     tracker.attach_existing ||
       (tracker.use_wandb && tracker.wandb_attach_existing) ||
       (tracker.use_mlflow && tracker.mlflow_attach_existing)
+  end
+
+  defp maybe_create_mlflow_dir(nil), do: :ok
+
+  defp maybe_create_mlflow_dir("file://" <> path) do
+    File.mkdir_p!(path)
+    :ok
+  end
+
+  defp maybe_create_mlflow_dir(_tracking_uri), do: :ok
+
+  defp call_with_tracker(fun, tracker) do
+    case Function.info(fun, :arity) do
+      {:arity, 1} -> fun.(tracker)
+      {:arity, 0} -> fun.()
+    end
   end
 
   defp prefix_map(%__MODULE__{} = tracker, map) do
