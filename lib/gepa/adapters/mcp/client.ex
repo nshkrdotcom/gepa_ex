@@ -19,6 +19,58 @@ defmodule GEPA.Adapters.MCP.Client do
   def call_tool(client, name, arguments),
     do: module_for(client).call_tool(client, name, arguments)
 
+  @doc "Create a dependency-free MCP client transport config."
+  @spec create(keyword() | map()) :: term()
+  def create(opts \\ []) do
+    opts = Map.new(opts)
+    server_params = Map.get(opts, :server_params)
+    remote_url = Map.get(opts, :remote_url)
+
+    cond do
+      server_params && remote_url ->
+        raise ArgumentError, "provide local server_params or remote_url, not both"
+
+      server_params ->
+        stdio_client(server_params, opts)
+
+      remote_url ->
+        remote_client(remote_url, opts)
+
+      true ->
+        raise ArgumentError, "must provide either server_params or remote_url"
+    end
+  end
+
+  defp stdio_client(server_params, opts) do
+    struct(GEPA.Adapters.MCP.Client.Stdio,
+      command: Map.get(server_params, :command) || Map.get(server_params, "command"),
+      args: Map.get(server_params, :args) || Map.get(server_params, "args") || [],
+      env: Map.get(server_params, :env) || Map.get(server_params, "env") || %{},
+      timeout: Map.get(opts, :timeout, 30_000)
+    )
+  end
+
+  defp remote_client(remote_url, opts) do
+    remote_transport = Map.get(opts, :remote_transport, "sse")
+    headers = Map.get(opts, :remote_headers, %{})
+    timeout = Map.get(opts, :timeout, 30_000)
+
+    case remote_transport do
+      transport when transport in [:sse, "sse"] ->
+        struct(GEPA.Adapters.MCP.Client.SSE, url: remote_url, headers: headers, timeout: timeout)
+
+      transport when transport in [:streamable_http, "streamable_http"] ->
+        struct(GEPA.Adapters.MCP.Client.StreamableHTTP,
+          url: remote_url,
+          headers: headers,
+          timeout: timeout
+        )
+
+      other ->
+        raise ArgumentError, "unknown remote transport: #{inspect(other)}"
+    end
+  end
+
   defp module_for(%module{}), do: module
   defp module_for(module) when is_atom(module), do: module
 end

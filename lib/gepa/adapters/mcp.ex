@@ -5,11 +5,15 @@ defmodule GEPA.Adapters.MCP.DataInst do
             reference_answer: nil,
             expected_tool: nil,
             metadata: %{}
+
+  @type t :: %__MODULE__{}
 end
 
 defmodule GEPA.Adapters.MCP.Output do
   @moduledoc "Output emitted by `GEPA.Adapters.MCP`."
   defstruct [:selected_tool, :tool_arguments, :tool_result, :answer]
+
+  @type t :: %__MODULE__{}
 end
 
 defmodule GEPA.Adapters.MCP.Trajectory do
@@ -25,6 +29,8 @@ defmodule GEPA.Adapters.MCP.Trajectory do
     :score,
     :feedback
   ]
+
+  @type t :: %__MODULE__{}
 end
 
 defmodule GEPA.Adapters.MCP do
@@ -44,9 +50,18 @@ defmodule GEPA.Adapters.MCP do
   defstruct [
     :client,
     :model,
+    :task_model,
+    :tool_names,
     :tool_selector,
     :answer_generator,
     :scoring_fn,
+    :metric_fn,
+    :server_params,
+    :remote_url,
+    :remote_transport,
+    :remote_headers,
+    :base_system_prompt,
+    :enable_two_pass,
     failure_score: 0.0,
     two_pass?: true
   ]
@@ -56,16 +71,101 @@ defmodule GEPA.Adapters.MCP do
   @spec new(keyword() | map()) :: t()
   def new(opts \\ []) do
     opts = Map.new(opts)
+    client = Map.get(opts, :client) || Client.create(opts)
+    model = Map.get(opts, :model, Map.get(opts, :task_model))
+    scoring_fn = Map.get(opts, :scoring_fn, Map.get(opts, :metric_fn))
+    two_pass? = Map.get(opts, :two_pass?, Map.get(opts, :enable_two_pass, true))
 
     %__MODULE__{
-      client: Map.fetch!(opts, :client),
-      model: Map.get(opts, :model),
+      client: client,
+      model: model,
+      task_model: model,
+      tool_names: normalize_tool_names(Map.get(opts, :tool_names, [])),
       tool_selector: Map.get(opts, :tool_selector),
       answer_generator: Map.get(opts, :answer_generator),
-      scoring_fn: Map.get(opts, :scoring_fn),
+      scoring_fn: scoring_fn,
+      metric_fn: scoring_fn,
+      server_params: Map.get(opts, :server_params),
+      remote_url: Map.get(opts, :remote_url),
+      remote_transport: Map.get(opts, :remote_transport),
+      remote_headers: Map.get(opts, :remote_headers, %{}),
+      base_system_prompt:
+        Map.get(opts, :base_system_prompt, "You are an MCP tool-use assistant."),
+      enable_two_pass: two_pass?,
       failure_score: Map.get(opts, :failure_score, 0.0) * 1.0,
-      two_pass?: Map.get(opts, :two_pass?, true)
+      two_pass?: two_pass?
     }
+  end
+
+  @doc "Build the tool-use system prompt for a candidate and available tool schemas."
+  @spec build_system_prompt(t(), map(), [map()]) :: String.t()
+  def build_system_prompt(%__MODULE__{} = adapter, candidate, tools) do
+    tool_blocks =
+      Enum.map_join(tools, "\n", fn tool ->
+        name = tool_name(tool)
+        description = candidate_tool_description(candidate, name, tool)
+
+        schema =
+          Map.get(tool, "inputSchema") || Map.get(tool, "input_schema") ||
+            Map.get(tool, :inputSchema) || Map.get(tool, :input_schema) || %{}
+
+        """
+        Tool: #{name}
+        Description: #{description}
+        Input schema: #{inspect(schema, pretty: true)}
+        """
+      end)
+
+    """
+    #{adapter.base_system_prompt}
+
+    Available tools:
+    #{tool_blocks}
+
+    Select an appropriate tool and respond with JSON using the action "call_tool".
+    """
+  end
+
+  @doc "Extract a plain-text result from common MCP tool response shapes."
+  @spec extract_tool_response(term()) :: String.t()
+  def extract_tool_response(%{isError: true} = result) do
+    "ERROR: " <> extract_content_text(Map.get(result, :content, []))
+  end
+
+  def extract_tool_response(%{"isError" => true} = result) do
+    "ERROR: " <> extract_content_text(Map.get(result, "content", []))
+  end
+
+  def extract_tool_response(%{structuredContent: structured}) when not is_nil(structured) do
+    inspect(structured, pretty: true)
+  end
+
+  def extract_tool_response(%{"structuredContent" => structured}) when not is_nil(structured) do
+    inspect(structured, pretty: true)
+  end
+
+  def extract_tool_response(%{content: content}), do: extract_content_text(content)
+  def extract_tool_response(%{"content" => content}), do: extract_content_text(content)
+  def extract_tool_response(result) when is_binary(result), do: result
+  def extract_tool_response(result), do: inspect(result, pretty: true)
+
+  @doc "Generate reflective feedback for an MCP tool-use trajectory."
+  @spec generate_tool_feedback(map() | Trajectory.t(), number()) :: String.t()
+  def generate_tool_feedback(trajectory, score) do
+    tool_called =
+      trajectory_value(trajectory, :tool_called) ||
+        not is_nil(trajectory_value(trajectory, :selected_tool))
+
+    cond do
+      score >= 0.75 and tool_called ->
+        "Good tool use: selected #{inspect(trajectory_value(trajectory, :selected_tool))} appropriately."
+
+      not tool_called ->
+        "Incorrect: the model did not call a tool when one was needed."
+
+      true ->
+        "Incorrect tool result or final answer. Selected #{inspect(trajectory_value(trajectory, :selected_tool))} with score #{score}."
+    end
   end
 
   @impl true
@@ -94,14 +194,16 @@ defmodule GEPA.Adapters.MCP do
          rows =
            Enum.map(trajectories, fn trajectory ->
              %{
-               "Inputs" => %{"user_query" => trajectory.user_query},
+               "Inputs" => %{"user_query" => trajectory_value(trajectory, :user_query)},
                "Generated Outputs" => %{
-                 "selected_tool" => trajectory.selected_tool,
-                 "tool_arguments" => trajectory.tool_arguments,
-                 "answer" => trajectory.answer
+                 "selected_tool" => trajectory_value(trajectory, :selected_tool),
+                 "tool_arguments" => trajectory_value(trajectory, :tool_arguments),
+                 "answer" => trajectory_value(trajectory, :answer)
                },
-               "Feedback" => trajectory.feedback,
-               "Available Tools" => trajectory.available_tools
+               "Feedback" =>
+                 trajectory_value(trajectory, :feedback) ||
+                   generate_tool_feedback(trajectory, trajectory_value(trajectory, :score) || 0.0),
+               "Available Tools" => trajectory_value(trajectory, :available_tools)
              }
            end)
 
@@ -327,4 +429,35 @@ defmodule GEPA.Adapters.MCP do
 
   defp stringify_map(map) when is_map(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
   defp stringify_map(_), do: %{}
+
+  defp normalize_tool_names(names) when is_list(names), do: Enum.map(names, &to_string/1)
+  defp normalize_tool_names(name) when is_binary(name) or is_atom(name), do: [to_string(name)]
+  defp normalize_tool_names(_names), do: []
+
+  defp candidate_tool_description(candidate, name, tool) do
+    Map.get(candidate, "tool_description_#{name}") ||
+      Map.get(candidate, "tool_description") ||
+      Map.get(tool, "description") ||
+      Map.get(tool, :description) ||
+      ""
+  end
+
+  defp extract_content_text(content) when is_list(content) do
+    Enum.map_join(content, "\n", fn
+      %{"type" => "text", "text" => text} -> text
+      %{type: "text", text: text} -> text
+      %{"type" => "image", "mimeType" => mime_type} -> "[Image: #{mime_type}]"
+      %{type: "image", mimeType: mime_type} -> "[Image: #{mime_type}]"
+      %{"type" => "image", "mime_type" => mime_type} -> "[Image: #{mime_type}]"
+      %{type: "image", mime_type: mime_type} -> "[Image: #{mime_type}]"
+      other -> inspect(other, pretty: true)
+    end)
+  end
+
+  defp extract_content_text(content), do: to_string(content)
+
+  defp trajectory_value(%Trajectory{} = trajectory, key), do: Map.get(trajectory, key)
+
+  defp trajectory_value(%{} = trajectory, key),
+    do: get_any_key(trajectory, [key, Atom.to_string(key)])
 end
