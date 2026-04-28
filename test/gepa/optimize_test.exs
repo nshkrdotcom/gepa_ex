@@ -148,6 +148,115 @@ defmodule GEPA.OptimizeTest do
       end
     end
 
+    test "accepts upstream reflection_prompt_template with default adapter" do
+      captured_prompts = :ets.new(:upstream_reflection_prompts, [:ordered_set, :public])
+
+      reflection_lm = fn prompt ->
+        :ets.insert(captured_prompts, {System.unique_integer([:positive]), prompt})
+        "```\nimproved instructions\n```"
+      end
+
+      custom_template = """
+      Current instructions:
+      <curr_param>
+      Inputs, outputs, and feedback:
+      <side_info>
+      Please improve the instructions.
+      """
+
+      {:ok, _result} =
+        GEPA.optimize(
+          seed_candidate: %{"instructions" => "initial instructions"},
+          trainset: [
+            %{
+              "input" => "my_input",
+              "answer" => "my_answer",
+              "additional_context" => %{"context" => "my_context"}
+            }
+          ],
+          task_lm: fn _messages -> "test response" end,
+          reflection_lm: reflection_lm,
+          reflection_prompt_template: custom_template,
+          max_metric_calls: 10,
+          reflection_minibatch_size: 1,
+          skip_perfect_score: false
+        )
+
+      prompts = :ets.tab2list(captured_prompts) |> Enum.map(&elem(&1, 1))
+      :ets.delete(captured_prompts)
+
+      assert [reflection_prompt | _] = prompts
+      assert reflection_prompt =~ "initial instructions"
+      assert reflection_prompt =~ "my_input"
+      assert reflection_prompt =~ "Please improve the instructions."
+    end
+
+    test "raises when upstream reflection_prompt_template is missing placeholders" do
+      assert_raise ArgumentError,
+                   ~r/Missing placeholder\(s\) in prompt template: <curr_param>, <side_info>/,
+                   fn ->
+                     GEPA.optimize(
+                       seed_candidate: %{"instructions" => "initial instructions"},
+                       trainset: [%{"input" => "my_input", "answer" => "my_answer"}],
+                       task_lm: fn _messages -> "test response" end,
+                       reflection_lm: fn _prompt -> "```\nimproved instructions\n```" end,
+                       reflection_prompt_template: "Missing both placeholders.",
+                       max_metric_calls: 2,
+                       reflection_minibatch_size: 1
+                     )
+                   end
+    end
+
+    test "accepts component-specific upstream reflection_prompt_template map" do
+      captured_prompts = :ets.new(:component_reflection_prompts, [:ordered_set, :public])
+
+      reflection_lm = fn prompt ->
+        :ets.insert(captured_prompts, {System.unique_integer([:positive]), prompt})
+        "```\nimproved text\n```"
+      end
+
+      custom_templates = %{
+        "instructions" => """
+        Instructions template:
+        <curr_param>
+        Data:
+        <side_info>
+        Make it better.
+        """,
+        "context" => """
+        Context template:
+        <curr_param>
+        Feedback:
+        <side_info>
+        Improve context.
+        """
+      }
+
+      {:ok, _result} =
+        GEPA.optimize(
+          seed_candidate: %{
+            "instructions" => "initial instructions",
+            "context" => "initial context"
+          },
+          trainset: [%{"input" => "my_input", "answer" => "my_answer"}],
+          task_lm: fn _messages -> "test response" end,
+          reflection_lm: reflection_lm,
+          reflection_prompt_template: custom_templates,
+          module_selector: "all",
+          max_metric_calls: 10,
+          reflection_minibatch_size: 1,
+          skip_perfect_score: false
+        )
+
+      prompts = :ets.tab2list(captured_prompts) |> Enum.map(&elem(&1, 1))
+      :ets.delete(captured_prompts)
+
+      assert Enum.any?(prompts, &String.contains?(&1, "Instructions template:"))
+      assert Enum.any?(prompts, &String.contains?(&1, "Make it better."))
+      assert Enum.any?(prompts, &String.contains?(&1, "Context template:"))
+      assert Enum.any?(prompts, &String.contains?(&1, "Improve context."))
+    end
+
     test "raises without reflection_llm, custom proposer, or adapter proposer" do
       assert_raise ArgumentError, ~r/reflection_llm was not provided/, fn ->
         GEPA.optimize(

@@ -185,17 +185,20 @@ defmodule GEPA.Proposer.InstructionProposal do
 
       Enum.any?(@upstream_placeholders, &String.contains?(template, &1)) ->
         missing = Enum.reject(@upstream_placeholders, &String.contains?(template, &1))
-        raise ArgumentError, "template missing required placeholders: #{inspect(missing)}"
+        raise ArgumentError, missing_upstream_placeholders_message(missing)
 
       true ->
-        raise ArgumentError,
-              "template must include upstream placeholders #{inspect(@upstream_placeholders)} or legacy placeholders #{inspect(@legacy_placeholders)}"
+        raise ArgumentError, missing_upstream_placeholders_message(@upstream_placeholders)
     end
   end
 
   defp validate_template!(template) do
     raise ArgumentError,
           "template must be a string or component/template map, got: #{inspect(template)}"
+  end
+
+  defp missing_upstream_placeholders_message(missing) do
+    "Missing placeholder(s) in prompt template: #{Enum.join(missing, ", ")}"
   end
 
   defp template_for_component(template, component_name) when is_map(template) do
