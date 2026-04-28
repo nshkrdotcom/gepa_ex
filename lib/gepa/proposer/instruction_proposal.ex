@@ -107,6 +107,7 @@ defmodule GEPA.Proposer.InstructionProposal do
     else
       case GEPA.LLM.complete(config.llm, prompt) do
         {:ok, response} ->
+          response = String.trim(response)
           {:ok, extract_instruction(config, response), prompt, response}
 
         {:error, reason} ->

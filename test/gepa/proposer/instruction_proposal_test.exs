@@ -192,6 +192,23 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       assert result == "Extracted content"
     end
 
+    test "passes stripped LLM response to custom extract_fn" do
+      test_pid = self()
+      llm = Mock.new(responses: ["  response with spaces  "])
+
+      extract_fn = fn response ->
+        send(test_pid, {:extract_fn_received, response})
+        response
+      end
+
+      proposal = InstructionProposal.new(llm: llm, extract_fn: extract_fn)
+
+      assert {:ok, "response with spaces", _prompt, "response with spaces"} =
+               InstructionProposal.propose_with_metadata(proposal, "comp", "instruction", [])
+
+      assert_receive {:extract_fn_received, "response with spaces"}
+    end
+
     test "default extractor strips language specifier from fenced instruction" do
       llm =
         Mock.new(
