@@ -109,7 +109,14 @@ defmodule GEPA.Engine do
 
       # Increment internal iteration. Public callbacks/logs are one-based to
       # match upstream while state.i remains zero-based after the first loop.
-      state = %{state | i: state.i + 1}
+      next_i = state.i + 1
+
+      state = %{
+        state
+        | i: next_i,
+          full_program_trace: state.full_program_trace ++ [%{i: next_i}]
+      }
+
       iteration = state.i + 1
       Logger.debug("Starting iteration #{iteration}")
 
@@ -135,8 +142,19 @@ defmodule GEPA.Engine do
             {reflective, new_state, new_config, metric_calls}
 
           {:ok, merge_proposer} ->
+            should_attempt_merge? =
+              merge_proposer.use_merge and merge_proposer.merges_due > 0 and
+                merge_proposer.last_iter_found_new_program
+
             {merge_proposal, updated_proposer} =
               Merge.propose(merge_proposer, state)
+
+            updated_proposer =
+              if should_attempt_merge? do
+                %{updated_proposer | last_iter_found_new_program: false}
+              else
+                updated_proposer
+              end
 
             merge_config = %{config | merge_proposer: updated_proposer}
 
@@ -211,19 +229,7 @@ defmodule GEPA.Engine do
                 step: iteration
               )
 
-              new_config =
-                case Map.fetch(config, :merge_proposer) do
-                  {:ok, nil} ->
-                    config
-
-                  {:ok, merge_proposer} ->
-                    updated_merge = %{merge_proposer | last_iter_found_new_program: true}
-                    updated_merge = Merge.schedule_if_needed(updated_merge)
-                    %{config | merge_proposer: updated_merge}
-
-                  :error ->
-                    config
-                end
+              new_config = update_merge_proposer_after_accept(config, proposal.tag)
 
               {:cont, new_state, new_config, true}
             else
@@ -447,6 +453,35 @@ defmodule GEPA.Engine do
     Map.update(config, :stop_conditions, [], fn stop_conditions ->
       Enum.map(stop_conditions, &GEPA.StopCondition.update(&1, state))
     end)
+  end
+
+  defp update_merge_proposer_after_accept(config, "merge") do
+    case Map.fetch(config, :merge_proposer) do
+      {:ok, %Merge{} = merge_proposer} ->
+        updated_merge = %{
+          merge_proposer
+          | merges_due: max(merge_proposer.merges_due - 1, 0),
+            total_merges_tested: merge_proposer.total_merges_tested + 1,
+            last_iter_found_new_program: false
+        }
+
+        %{config | merge_proposer: updated_merge}
+
+      _ ->
+        config
+    end
+  end
+
+  defp update_merge_proposer_after_accept(config, _proposal_tag) do
+    case Map.fetch(config, :merge_proposer) do
+      {:ok, %Merge{} = merge_proposer} ->
+        updated_merge = %{merge_proposer | last_iter_found_new_program: true}
+        updated_merge = Merge.schedule_if_needed(updated_merge)
+        %{config | merge_proposer: updated_merge}
+
+      _ ->
+        config
+    end
   end
 
   defp proposal_metric_calls(%CandidateProposal{metadata: metadata} = proposal) do

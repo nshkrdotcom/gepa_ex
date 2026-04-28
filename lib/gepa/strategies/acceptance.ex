@@ -2,9 +2,10 @@ defmodule GEPA.Strategies.Acceptance do
   @moduledoc """
   Acceptance criteria for proposed GEPA candidates.
 
-  Mirrors the official Python acceptance strategy seam while keeping the
-  Elixir API small: built-in criteria are modules, and advanced users may pass
-  a two-arity function receiving `{proposal, state}`.
+  Reflective mutations use a pluggable acceptance criterion. Merge proposals are
+  intentionally accepted with the official merge rule: the merged program's
+  subsample score sum must be at least the better parent sum. That rule is not
+  user-overridable in the Python engine and is kept separate here as well.
   """
 
   alias GEPA.CandidateProposal
@@ -18,20 +19,24 @@ defmodule GEPA.Strategies.Acceptance do
 
   @callback should_accept(CandidateProposal.t(), GEPA.State.t() | nil) :: boolean()
 
-  @doc """
-  Normalize user-facing criterion names to implementation modules.
-  """
   @spec normalize(criterion() | nil) :: criterion()
   def normalize(nil), do: GEPA.Strategies.Acceptance.StrictImprovement
   def normalize(:strict_improvement), do: GEPA.Strategies.Acceptance.StrictImprovement
   def normalize(:improvement_or_equal), do: GEPA.Strategies.Acceptance.ImprovementOrEqual
   def normalize(criterion), do: criterion
 
-  @doc """
-  Apply an acceptance criterion to a proposal.
-  """
   @spec should_accept?(CandidateProposal.t(), criterion() | nil, GEPA.State.t() | nil) ::
           boolean()
+  def should_accept?(%CandidateProposal{tag: "merge"} = proposal, _criterion, _state) do
+    with parent_sums when is_list(parent_sums) and parent_sums != [] <-
+           proposal.subsample_scores_before,
+         after_scores when is_list(after_scores) <- proposal.subsample_scores_after do
+      Enum.sum(after_scores) >= Enum.max(parent_sums)
+    else
+      _ -> false
+    end
+  end
+
   def should_accept?(%CandidateProposal{} = proposal, criterion, state) do
     criterion = normalize(criterion)
 
@@ -43,7 +48,7 @@ defmodule GEPA.Strategies.Acceptance do
           function_exported?(criterion, :should_accept, 2) ->
         criterion.should_accept(proposal, state)
 
-      is_map(criterion) ->
+      is_map(criterion) and Map.has_key?(criterion, :__struct__) ->
         module = criterion.__struct__
 
         if function_exported?(module, :should_accept, 3) do
@@ -59,9 +64,7 @@ defmodule GEPA.Strategies.Acceptance do
 end
 
 defmodule GEPA.Strategies.Acceptance.StrictImprovement do
-  @moduledoc """
-  Accept only if the new subsample score sum is strictly greater than the old sum.
-  """
+  @moduledoc "Accept only if the new subsample score sum is strictly greater than the old sum."
 
   @behaviour GEPA.Strategies.Acceptance
 
@@ -77,9 +80,7 @@ defmodule GEPA.Strategies.Acceptance.StrictImprovement do
 end
 
 defmodule GEPA.Strategies.Acceptance.ImprovementOrEqual do
-  @moduledoc """
-  Accept if the new subsample score sum is greater than or equal to the old sum.
-  """
+  @moduledoc "Accept if the new subsample score sum is greater than or equal to the old sum."
 
   @behaviour GEPA.Strategies.Acceptance
 

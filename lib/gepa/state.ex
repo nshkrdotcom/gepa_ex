@@ -283,6 +283,42 @@ defmodule GEPA.State do
     end
   end
 
+  @doc "Return average validation score and evaluated-count for a program."
+  @spec get_program_average_val_subset(t(), Types.program_idx()) :: {float(), non_neg_integer()}
+  def get_program_average_val_subset(state, program_idx),
+    do: get_program_score(state, program_idx)
+
+  @doc "Return the active Pareto-front mapping for the configured frontier type."
+  @spec get_pareto_front_mapping(t()) :: map()
+  def get_pareto_front_mapping(%__MODULE__{frontier_type: :objective} = state) do
+    state.program_at_pareto_front_objectives
+  end
+
+  def get_pareto_front_mapping(%__MODULE__{frontier_type: :cartesian} = state) do
+    state.program_at_pareto_front_cartesian
+  end
+
+  def get_pareto_front_mapping(%__MODULE__{frontier_type: :hybrid} = state) do
+    Map.merge(
+      tag_front_keys(state.program_at_pareto_front_valset, :instance),
+      tag_front_keys(state.program_at_pareto_front_objectives, :objective)
+    )
+  end
+
+  def get_pareto_front_mapping(%__MODULE__{} = state), do: state.program_at_pareto_front_valset
+
+  @doc "Return per-program average validation scores in candidate-index order."
+  @spec tracked_scores(t()) :: [float()]
+  def tracked_scores(%__MODULE__{} = state) do
+    state.prog_candidate_val_subscores
+    |> Enum.with_index()
+    |> Enum.map(fn {_scores, idx} -> elem(get_program_score(state, idx), 0) end)
+  end
+
+  defp tag_front_keys(fronts, tag) do
+    Map.new(fronts, fn {key, value} -> {{tag, key}, value} end)
+  end
+
   # Private helper to update Pareto front for a single validation example
   defp objective_scores_by_val_id(%GEPA.EvaluationBatch{objective_scores: nil}, _valset_ids),
     do: nil

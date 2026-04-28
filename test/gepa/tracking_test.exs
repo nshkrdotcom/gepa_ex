@@ -27,11 +27,20 @@ defmodule GEPA.TrackingTest do
         trainset: [%{input: "Q", answer: "A"}],
         valset: [%{input: "Q2", answer: "A2"}],
         adapter: Basic.new(),
+        custom_candidate_proposer: custom_candidate_proposer(),
         max_metric_calls: 1,
         tracker: tracker
       )
 
     snapshot = InMemory.snapshot(tracker)
     assert snapshot.summaries != []
+  end
+
+  defp custom_candidate_proposer do
+    fn candidate, _reflective_dataset, components ->
+      Map.new(components, fn component ->
+        {component, Map.get(candidate, component, "") <> " updated"}
+      end)
+    end
   end
 end

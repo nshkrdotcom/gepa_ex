@@ -149,7 +149,7 @@ defmodule GEPA.OptimizeTest do
     end
 
     test "raises without reflection_llm, custom proposer, or adapter proposer" do
-      assert_raise RuntimeError, ~r/missing_proposal_source/, fn ->
+      assert_raise ArgumentError, ~r/reflection_llm was not provided/, fn ->
         GEPA.optimize(
           seed_candidate: %{"instruction" => "Original"},
           trainset: [%{input: "Q", answer: "A"}],
@@ -219,7 +219,8 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q", answer: "A"}],
           valset: [%{input: "Q2", answer: "A2"}],
-          adapter: Basic.new()
+          adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer()
         )
       end
     end
@@ -240,6 +241,7 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q1", answer: "A1"}, %{input: "Q2", answer: "A2"}],
           adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
           stop_conditions: [%ImmediateStop{}],
           callbacks: [callback]
         )
@@ -254,6 +256,7 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q", answer: "A"}],
           adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
           stop_conditions: [%ImmediateStop{}]
         )
 
@@ -277,6 +280,7 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q", answer: "A"}],
           adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
           stop_conditions: [%ImmediateStop{}],
           max_metric_calls: 10,
           callbacks: [callback]
@@ -308,6 +312,7 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q", answer: "A"}],
           adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
           stop_conditions: [%ImmediateStop{}],
           run_dir: tmp_dir,
           callbacks: [callback]
@@ -410,7 +415,8 @@ defmodule GEPA.OptimizeTest do
           trainset: [%{input: "What is 2+2?", answer: "4"}],
           valset: [%{input: "What is 5+5?", answer: "10"}],
           max_metric_calls: 1,
-          task_lm: task_lm
+          task_lm: task_lm,
+          custom_candidate_proposer: custom_candidate_proposer()
         )
 
       assert %GEPA.Result{} = result
@@ -496,6 +502,14 @@ defmodule GEPA.OptimizeTest do
     end
   end
 
+  defp custom_candidate_proposer do
+    fn candidate, _reflective_dataset, components ->
+      Map.new(components, fn component ->
+        {component, Map.get(candidate, component, "") <> " updated"}
+      end)
+    end
+  end
+
   defp assert_config(opts) do
     assertion = Keyword.get(opts, :assert)
     expected_selector = Keyword.get(opts, :candidate_selector)
@@ -516,6 +530,7 @@ defmodule GEPA.OptimizeTest do
           seed_candidate: %{"i" => "test"},
           trainset: [%{input: "Q", answer: "A"}],
           adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
           stop_conditions: [%ImmediateStop{}],
           callbacks: [callback]
         ] ++ opts

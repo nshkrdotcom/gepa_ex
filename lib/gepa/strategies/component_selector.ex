@@ -1,79 +1,75 @@
 defmodule GEPA.Strategies.ComponentSelector do
   @moduledoc """
-  Behavior for selecting which components to update during mutation.
-
-  In multi-component optimization, this determines which components
-  of the program to mutate in each iteration.
+  Behaviour for selecting which named candidate components should be updated.
   """
 
-  @doc """
-  Select component names to update.
-
-  ## Parameters
-
-  - `state`: Current optimization state
-  - `candidate_idx`: Index of the candidate being mutated
-  - `candidate`: The candidate program
-
-  ## Returns
-
-  `{component_names, updated_state}` where component_names is a list of
-  component names to update, and updated_state has tracking info updated.
-  """
-  @callback select(GEPA.State.t(), non_neg_integer(), map()) ::
-              {[String.t()], GEPA.State.t()}
+  @callback select(GEPA.State.t(), non_neg_integer(), map()) :: {[String.t()], GEPA.State.t()}
 end
 
 defmodule GEPA.Strategies.ComponentSelector.RoundRobin do
   @moduledoc """
-  Cycles through components one at a time.
+  Official-style round-robin component selector.
 
-  Each candidate maintains its own position in the cycle, allowing
-  independent component update schedules for different candidates.
+  Each candidate tracks its own next component pointer. This lets a candidate
+  resume where it left off after descendants are accepted, matching the Python
+  optimizer's per-program component schedule.
   """
 
   @behaviour GEPA.Strategies.ComponentSelector
 
   @impl true
-  @spec select(GEPA.State.t(), non_neg_integer(), map()) ::
-          {[String.t()], GEPA.State.t()}
-  def select(state, candidate_idx, _candidate) do
-    # Get current position for this candidate
-    current_pos =
-      Enum.at(state.named_predictor_id_to_update_next_for_program_candidate, candidate_idx, 0)
+  def select(state, candidate_idx, candidate) do
+    components = selectable_components(state, candidate)
 
-    # Get component name at this position
-    component_name = Enum.at(state.list_of_named_predictors, current_pos)
+    case components do
+      [] ->
+        {[], state}
 
-    # Calculate next position (circular)
-    next_pos = rem(current_pos + 1, length(state.list_of_named_predictors))
+      _ ->
+        tracking =
+          ensure_tracking_slot(
+            state.named_predictor_id_to_update_next_for_program_candidate,
+            candidate_idx
+          )
 
-    # Update state with next position
-    new_tracking =
-      List.replace_at(
-        state.named_predictor_id_to_update_next_for_program_candidate,
-        candidate_idx,
-        next_pos
-      )
+        current_pos = Enum.at(tracking, candidate_idx, 0)
+        component_name = Enum.at(components, rem(current_pos, length(components)))
+        next_pos = rem(current_pos + 1, length(components))
+        new_tracking = List.replace_at(tracking, candidate_idx, next_pos)
 
-    new_state = %{state | named_predictor_id_to_update_next_for_program_candidate: new_tracking}
+        new_state = %{
+          state
+          | named_predictor_id_to_update_next_for_program_candidate: new_tracking
+        }
 
-    {[component_name], new_state}
+        {[component_name], new_state}
+    end
+  end
+
+  defp selectable_components(state, candidate) do
+    state.list_of_named_predictors
+    |> Enum.filter(&Map.has_key?(candidate, &1))
+    |> case do
+      [] -> candidate |> Map.keys() |> Enum.sort()
+      names -> names
+    end
+  end
+
+  defp ensure_tracking_slot(tracking, candidate_idx) do
+    if candidate_idx < length(tracking) do
+      tracking
+    else
+      tracking ++ List.duplicate(0, candidate_idx - length(tracking) + 1)
+    end
   end
 end
 
 defmodule GEPA.Strategies.ComponentSelector.All do
-  @moduledoc """
-  Updates all components simultaneously.
-
-  Good for holistic optimization where components have interdependencies.
-  """
+  @moduledoc "Update all candidate components together."
 
   @behaviour GEPA.Strategies.ComponentSelector
 
   @impl true
-  @spec select(GEPA.State.t(), non_neg_integer(), map()) ::
-          {[String.t()], GEPA.State.t()}
   def select(state, _candidate_idx, candidate) do
     component_names =
       state.list_of_named_predictors

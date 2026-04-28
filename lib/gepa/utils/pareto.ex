@@ -1,203 +1,124 @@
 defmodule GEPA.Utils.Pareto do
   @moduledoc """
-  Pareto optimization utilities for multi-objective candidate selection.
+  Pareto-front utilities used for candidate selection and merge parent choice.
 
-  These functions implement the core Pareto frontier logic that enables
-  GEPA to maintain diverse solutions that excel on different validation examples.
+  The domination algorithm follows the official Python GEPA utility: a program
+  is dominated when, for every Pareto front that contains it, another active
+  program also appears on that front. Programs absent from every front are
+  considered dominated/irrelevant.
   """
 
   alias GEPA.Types
 
-  @doc """
-  Check if a program is dominated by other programs.
-
-  A program is dominated if, for every Pareto front it appears in,
-  at least one of the candidate programs also appears in that front.
-
-  ## Parameters
-
-  - `program`: The program index to check
-  - `other_programs`: List of candidate program indices
-  - `fronts`: Pareto fronts mapping (data_id => set of program indices)
-
-  ## Returns
-
-  `true` if program is dominated, `false` otherwise
-
-  ## Examples
-
-      iex> fronts = %{"val1" => MapSet.new([0, 1]), "val2" => MapSet.new([0, 1])}
-      iex> GEPA.Utils.Pareto.is_dominated?(1, [0], fronts)
-      true
-
-      iex> fronts = %{"val1" => MapSet.new([0, 1]), "val2" => MapSet.new([1])}
-      iex> GEPA.Utils.Pareto.is_dominated?(1, [0], fronts)
-      false
-  """
   @spec is_dominated?(
           Types.program_idx(),
-          [Types.program_idx()],
+          [Types.program_idx()] | MapSet.t(),
           Types.pareto_fronts()
-        ) :: boolean()
-  # Public API kept for compatibility with the original port and tests.
+        ) ::
+          boolean()
   # credo:disable-for-next-line Credo.Check.Readability.PredicateFunctionNames
-  def is_dominated?(program, other_programs, program_at_pareto_front_valset) do
-    # Find all fronts containing this program
-    fronts_with_program = fronts_containing_program(program_at_pareto_front_valset, program)
+  def is_dominated?(program, other_programs, fronts) do
+    other_programs = MapSet.new(other_programs)
+
+    fronts_with_program =
+      fronts
+      |> Enum.flat_map(fn {_id, front} ->
+        if mapset_member?(front, program), do: [front], else: []
+      end)
 
     case fronts_with_program do
-      # If program is not in any front, it's not dominated.
-      [] -> false
-      fronts -> Enum.all?(fronts, &dominated_on_front?(&1, other_programs, program))
+      [] ->
+        true
+
+      program_fronts ->
+        Enum.all?(program_fronts, fn front ->
+          front
+          |> MapSet.delete(program)
+          |> MapSet.intersection(other_programs)
+          |> MapSet.size() > 0
+        end)
     end
   end
 
-  defp dominated_on_front?(front, other_programs, program) do
-    Enum.any?(other_programs, fn other ->
-      other != program and MapSet.member?(front, other)
-    end)
-  end
-
-  defp fronts_containing_program(fronts, program) do
-    fronts
-    |> Enum.reduce([], fn {_id, front}, acc ->
-      if mapset_member?(front, program), do: [front | acc], else: acc
-    end)
-    |> Enum.reverse()
-  end
-
-  defp mapset_member?(front, program) do
-    is_struct(front, MapSet) and MapSet.member?(front, program)
-  end
-
-  @doc """
-  Removes dominated programs from Pareto fronts.
-
-  Iteratively eliminates programs that are dominated by others,
-  returning cleaned Pareto fronts with only non-dominated programs.
-
-  ## Parameters
-
-  - `fronts`: Pareto fronts mapping
-  - `scores`: Map of program_idx => aggregate score
-
-  ## Returns
-
-  Cleaned Pareto fronts with dominated programs removed
-
-  ## Examples
-
-      iex> fronts = %{"val1" => MapSet.new([0, 1]), "val2" => MapSet.new([1, 2])}
-      iex> scores = %{0 => 0.9, 1 => 0.8, 2 => 0.85}
-      iex> result = GEPA.Utils.Pareto.remove_dominated_programs(fronts, scores)
-      iex> MapSet.member?(result["val1"], 0)
-      true
-  """
   @spec remove_dominated_programs(Types.pareto_fronts(), %{Types.program_idx() => float()}) ::
           Types.pareto_fronts()
-  def remove_dominated_programs(program_at_pareto_front_valset, scores) do
-    # Get all programs in any front
-    all_programs =
-      program_at_pareto_front_valset
-      |> Map.values()
-      |> Enum.reduce(MapSet.new(), fn front, acc ->
-        if is_struct(front, MapSet) do
-          MapSet.union(acc, front)
-        else
-          acc
-        end
-      end)
-      |> MapSet.to_list()
+  def remove_dominated_programs(fronts, scores) when map_size(fronts) == 0 do
+    _ = scores
+    %{}
+  end
 
-    # Sort by score (ascending) - remove lower-scoring dominated first
+  def remove_dominated_programs(fronts, scores) do
+    all_programs = get_all_programs(fronts)
     sorted_programs = Enum.sort_by(all_programs, &Map.get(scores, &1, 0.0))
-
-    # Iteratively find and remove dominated programs
-    dominated = do_eliminate(program_at_pareto_front_valset, sorted_programs, [])
+    dominated = do_eliminate(fronts, sorted_programs, MapSet.new())
     dominated_set = MapSet.new(dominated)
 
-    # Build new fronts without dominated programs
-    for {id, front} <- program_at_pareto_front_valset, into: %{} do
+    Map.new(fronts, fn {id, front} ->
       new_front =
         if is_struct(front, MapSet) do
-          MapSet.difference(front, dominated_set)
+          pruned = MapSet.difference(front, dominated_set)
+
+          if MapSet.size(pruned) == 0 and MapSet.size(front) > 0 do
+            [best_program] =
+              front
+              |> MapSet.to_list()
+              |> Enum.sort_by(&{-Map.get(scores, &1, 0.0), &1})
+              |> Enum.take(1)
+
+            MapSet.new([best_program])
+          else
+            pruned
+          end
         else
           front
         end
 
       {id, new_front}
-    end
+    end)
   end
 
-  # Recursive elimination of dominated programs
   defp do_eliminate(fronts, programs, dominated) do
-    active_programs = Enum.reject(programs, &Enum.member?(dominated, &1))
+    active_programs = Enum.reject(programs, &MapSet.member?(dominated, &1))
 
-    case find_next_dominated(fronts, active_programs, dominated) do
-      {:ok, prog} ->
-        do_eliminate(fronts, programs, [prog | dominated])
-
-      :none ->
-        dominated
+    case find_next_dominated(fronts, active_programs) do
+      {:ok, program} -> do_eliminate(fronts, programs, MapSet.put(dominated, program))
+      :none -> MapSet.to_list(dominated)
     end
   end
 
-  defp find_next_dominated(fronts, active_programs, _dominated) do
-    # Try to find a program that is dominated by the others
-    Enum.find_value(active_programs, :none, fn prog ->
-      others = active_programs -- [prog]
+  defp find_next_dominated(_fronts, []), do: :none
 
-      if is_dominated?(prog, others, fronts) do
-        {:ok, prog}
+  defp find_next_dominated(fronts, active_programs) do
+    Enum.find_value(active_programs, :none, fn program ->
+      others = active_programs -- [program]
+
+      if is_dominated?(program, others, fronts) do
+        {:ok, program}
       else
         nil
       end
     end)
   end
 
-  @doc """
-  Selects a program from Pareto fronts using frequency-weighted sampling.
-
-  Programs appearing in more Pareto fronts have higher probability of selection.
-
-  ## Parameters
-
-  - `fronts`: Pareto fronts mapping
-  - `scores`: Map of program_idx => aggregate score
-  - `rand_state`: Erlang random state
-
-  ## Returns
-
-  `{selected_program_idx, new_rand_state}`
-
-  ## Examples
-
-      iex> fronts = %{"val1" => MapSet.new([0, 1])}
-      iex> scores = %{0 => 0.9, 1 => 0.8}
-      iex> {selected, _} = GEPA.Utils.Pareto.select_from_pareto_front(fronts, scores, :rand.seed(:exsss, {1, 2, 3}))
-      iex> selected in [0, 1]
-      true
-  """
   @spec select_from_pareto_front(
           Types.pareto_fronts(),
           %{Types.program_idx() => float()},
           :rand.state()
-        ) :: {Types.program_idx(), :rand.state()}
-  def select_from_pareto_front(program_at_pareto_front_valset, scores, rand_state) do
-    # Remove dominated programs
-    cleaned_fronts = remove_dominated_programs(program_at_pareto_front_valset, scores)
+        ) ::
+          {Types.program_idx(), :rand.state()}
+  def select_from_pareto_front(fronts, scores, rand_state) do
+    cleaned_fronts = remove_dominated_programs(fronts, scores)
 
-    # Count frequency of each program in cleaned fronts
-    freq =
+    frequencies =
       Enum.reduce(cleaned_fronts, %{}, fn {_id, front}, acc ->
-        Enum.reduce(front, acc, fn prog, acc2 ->
-          Map.update(acc2, prog, 1, &(&1 + 1))
-        end)
+        if is_struct(front, MapSet) do
+          Enum.reduce(front, acc, &Map.update(&2, &1, 1, fn count -> count + 1 end))
+        else
+          acc
+        end
       end)
 
-    # Handle edge case: if no programs in fronts, return program 0
-    if map_size(freq) == 0 do
-      # Fallback: return highest scoring program
+    if map_size(frequencies) == 0 do
       fallback_prog =
         scores
         |> Enum.max_by(fn {_prog, score} -> score end, fn -> {0, 0.0} end)
@@ -205,69 +126,36 @@ defmodule GEPA.Utils.Pareto do
 
       {fallback_prog, rand_state}
     else
-      # Build weighted sampling list (programs repeated by frequency)
       sampling_list =
-        for {prog, count} <- freq,
-            _ <- 1..count,
-            do: prog
+        frequencies
+        |> Enum.sort_by(fn {prog, _count} -> prog end)
+        |> Enum.flat_map(fn {prog, count} -> List.duplicate(prog, count) end)
 
-      # Random selection
       {idx, new_rand} = :rand.uniform_s(length(sampling_list), rand_state)
       {Enum.at(sampling_list, idx - 1), new_rand}
     end
   end
 
-  @doc """
-  Returns the set of non-dominated programs.
-
-  ## Parameters
-
-  - `fronts`: Pareto fronts mapping
-  - `scores`: Map of program_idx => aggregate score
-
-  ## Returns
-
-  List of program indices that are not dominated
-
-  ## Examples
-
-      iex> fronts = %{"val1" => MapSet.new([0]), "val2" => MapSet.new([1])}
-      iex> scores = %{0 => 0.9, 1 => 0.8}
-      iex> dominators = GEPA.Utils.Pareto.find_dominator_programs(fronts, scores)
-      iex> Enum.sort(dominators)
-      [0, 1]
-  """
   @spec find_dominator_programs(Types.pareto_fronts(), %{Types.program_idx() => float()}) ::
           [Types.program_idx()]
-  def find_dominator_programs(program_at_pareto_front_valset, scores) do
-    cleaned_fronts = remove_dominated_programs(program_at_pareto_front_valset, scores)
-
-    cleaned_fronts
-    |> Map.values()
-    |> Enum.reduce(MapSet.new(), fn front, acc ->
-      if is_struct(front, MapSet) do
-        MapSet.union(acc, front)
-      else
-        acc
-      end
-    end)
-    |> MapSet.to_list()
+  def find_dominator_programs(fronts, scores) do
+    fronts
+    |> remove_dominated_programs(scores)
+    |> get_all_programs()
+    |> Enum.sort_by(&{-Map.get(scores, &1, 0.0), &1})
   end
 
-  @doc """
-  Helper to get all programs from fronts.
-  """
   @spec get_all_programs(Types.pareto_fronts()) :: [Types.program_idx()]
   def get_all_programs(fronts) do
     fronts
     |> Map.values()
-    |> Enum.reduce(MapSet.new(), fn front, acc ->
-      if is_struct(front, MapSet) do
-        MapSet.union(acc, front)
-      else
-        acc
-      end
+    |> Enum.reduce(MapSet.new(), fn
+      %MapSet{} = front, acc -> MapSet.union(acc, front)
+      _front, acc -> acc
     end)
     |> MapSet.to_list()
   end
+
+  defp mapset_member?(%MapSet{} = front, program), do: MapSet.member?(front, program)
+  defp mapset_member?(_front, _program), do: false
 end

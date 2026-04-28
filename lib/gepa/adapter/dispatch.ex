@@ -2,29 +2,38 @@ defmodule GEPA.Adapter.Dispatch do
   @moduledoc """
   Adapter dispatch helpers used by the Elixir GEPA engine.
 
-  The Python reference has a single `GEPAAdapter` protocol.  The Elixir port
-  intentionally keeps a lightweight behaviour-based mechanism, but this module
-  makes that mechanism tolerant of all adapter shapes users naturally provide:
-
-    * structs implementing `evaluate/4` and `make_reflective_dataset/4`
-    * modules implementing `evaluate/4` or official-style `evaluate/3`
-    * structs/modules that optionally expose `propose_new_texts`,
-      `get_adapter_state`, and `set_adapter_state`
-
-  All helpers normalize return values to the `{:ok, value} | {:error, reason}`
-  shape expected by the engine.
+  Python GEPA exposes one `GEPAAdapter` protocol. This Elixir port keeps a
+  lightweight behaviour/duck-typing boundary, but centralizes all dispatch so
+  the engine receives normalized `EvaluationBatch` values and consistent error
+  tuples.
   """
 
   alias GEPA.EvaluationBatch
 
   @type candidate :: %{String.t() => String.t()}
-  @type adapter :: module() | struct()
+  @type adapter :: module() | struct() | map()
 
-  @doc "Return the module that should receive adapter callbacks."
+  @doc "Return the module that should receive adapter callbacks, when any."
   @spec module_for(adapter()) :: module() | nil
   def module_for(%module{}), do: module
   def module_for(module) when is_atom(module), do: module
   def module_for(_adapter), do: nil
+
+  @doc "Whether an adapter provides its own official-style proposal hook."
+  @spec has_propose_new_texts?(adapter()) :: boolean()
+  def has_propose_new_texts?(adapter) do
+    module = module_for(adapter)
+
+    cond do
+      module != nil and function_exported?(module, :propose_new_texts, 4) -> true
+      module != nil and function_exported?(module, :propose_new_texts, 3) -> true
+      is_map(adapter) and is_function(Map.get(adapter, :propose_new_texts), 4) -> true
+      is_map(adapter) and is_function(Map.get(adapter, :propose_new_texts), 3) -> true
+      is_map(adapter) and is_function(Map.get(adapter, "propose_new_texts"), 4) -> true
+      is_map(adapter) and is_function(Map.get(adapter, "propose_new_texts"), 3) -> true
+      true -> false
+    end
+  end
 
   @doc "Evaluate a candidate through the configured adapter."
   @spec evaluate(adapter(), [term()], candidate(), boolean()) ::
@@ -32,22 +41,34 @@ defmodule GEPA.Adapter.Dispatch do
   def evaluate(adapter, batch, candidate, capture_traces) do
     module = module_for(adapter)
 
-    cond do
-      module != nil and function_exported?(module, :evaluate, 4) ->
-        module.evaluate(adapter, batch, candidate, capture_traces)
-        |> normalize_eval_batch()
+    result =
+      cond do
+        module != nil and function_exported?(module, :evaluate, 4) ->
+          module.evaluate(adapter, batch, candidate, capture_traces)
 
-      module != nil and function_exported?(module, :evaluate, 3) ->
-        module.evaluate(batch, candidate, capture_traces)
-        |> normalize_eval_batch()
+        module != nil and function_exported?(module, :evaluate, 3) ->
+          module.evaluate(batch, candidate, capture_traces)
 
-      module != nil and function_exported?(module, :evaluate, 2) ->
-        module.evaluate(batch, candidate)
-        |> normalize_eval_batch()
+        module != nil and function_exported?(module, :evaluate, 2) ->
+          module.evaluate(batch, candidate)
 
-      true ->
-        {:error, {:adapter_callback_missing, module || adapter, :evaluate}}
-    end
+        is_map(adapter) and is_function(Map.get(adapter, :evaluate), 4) ->
+          adapter.evaluate.(adapter, batch, candidate, capture_traces)
+
+        is_map(adapter) and is_function(Map.get(adapter, :evaluate), 3) ->
+          adapter.evaluate.(batch, candidate, capture_traces)
+
+        is_map(adapter) and is_function(Map.get(adapter, "evaluate"), 4) ->
+          Map.fetch!(adapter, "evaluate").(adapter, batch, candidate, capture_traces)
+
+        is_map(adapter) and is_function(Map.get(adapter, "evaluate"), 3) ->
+          Map.fetch!(adapter, "evaluate").(batch, candidate, capture_traces)
+
+        true ->
+          {:error, {:adapter_callback_missing, module || adapter, :evaluate}}
+      end
+
+    normalize_eval_batch(result, expected_count: length(batch), capture_traces: capture_traces)
   rescue
     exception -> {:error, exception}
   end
@@ -61,15 +82,20 @@ defmodule GEPA.Adapter.Dispatch do
     cond do
       module != nil and function_exported?(module, :make_reflective_dataset, 4) ->
         module.make_reflective_dataset(adapter, candidate, eval_batch, components)
-        |> normalize_dataset()
 
       module != nil and function_exported?(module, :make_reflective_dataset, 3) ->
         module.make_reflective_dataset(candidate, eval_batch, components)
-        |> normalize_dataset()
+
+      is_map(adapter) and is_function(Map.get(adapter, :make_reflective_dataset), 4) ->
+        adapter.make_reflective_dataset.(adapter, candidate, eval_batch, components)
+
+      is_map(adapter) and is_function(Map.get(adapter, :make_reflective_dataset), 3) ->
+        adapter.make_reflective_dataset.(candidate, eval_batch, components)
 
       true ->
         {:error, {:adapter_callback_missing, module || adapter, :make_reflective_dataset}}
     end
+    |> normalize_dataset()
   rescue
     exception -> {:error, exception}
   end
@@ -83,15 +109,31 @@ defmodule GEPA.Adapter.Dispatch do
     cond do
       module != nil and function_exported?(module, :propose_new_texts, 4) ->
         module.propose_new_texts(adapter, candidate, reflective_dataset, components)
-        |> normalize_new_texts()
 
       module != nil and function_exported?(module, :propose_new_texts, 3) ->
         module.propose_new_texts(candidate, reflective_dataset, components)
-        |> normalize_new_texts()
+
+      is_map(adapter) and is_function(Map.get(adapter, :propose_new_texts), 4) ->
+        adapter.propose_new_texts.(adapter, candidate, reflective_dataset, components)
+
+      is_map(adapter) and is_function(Map.get(adapter, :propose_new_texts), 3) ->
+        adapter.propose_new_texts.(candidate, reflective_dataset, components)
+
+      is_map(adapter) and is_function(Map.get(adapter, "propose_new_texts"), 4) ->
+        Map.fetch!(adapter, "propose_new_texts").(
+          adapter,
+          candidate,
+          reflective_dataset,
+          components
+        )
+
+      is_map(adapter) and is_function(Map.get(adapter, "propose_new_texts"), 3) ->
+        Map.fetch!(adapter, "propose_new_texts").(candidate, reflective_dataset, components)
 
       true ->
         :missing
     end
+    |> normalize_new_texts()
   rescue
     exception -> {:error, exception}
   end
@@ -101,15 +143,20 @@ defmodule GEPA.Adapter.Dispatch do
   def get_adapter_state(adapter) do
     module = module_for(adapter)
 
-    if module != nil and function_exported?(module, :get_adapter_state, 1) do
-      case module.get_adapter_state(adapter) do
-        {:ok, state} when is_map(state) -> state
-        state when is_map(state) -> state
-        _other -> %{}
-      end
-    else
-      %{}
+    cond do
+      module != nil and function_exported?(module, :get_adapter_state, 1) ->
+        module.get_adapter_state(adapter)
+
+      is_map(adapter) and is_function(Map.get(adapter, :get_adapter_state), 1) ->
+        adapter.get_adapter_state.(adapter)
+
+      is_map(adapter) and is_function(Map.get(adapter, :get_adapter_state), 0) ->
+        adapter.get_adapter_state.()
+
+      true ->
+        %{}
     end
+    |> normalize_state()
   rescue
     _ -> %{}
   end
@@ -119,39 +166,66 @@ defmodule GEPA.Adapter.Dispatch do
   def set_adapter_state(adapter, state) when is_map(state) do
     module = module_for(adapter)
 
-    if module != nil and function_exported?(module, :set_adapter_state, 2) do
-      module.set_adapter_state(adapter, state)
-    else
-      :ok
+    cond do
+      module != nil and function_exported?(module, :set_adapter_state, 2) ->
+        module.set_adapter_state(adapter, state)
+
+      is_map(adapter) and is_function(Map.get(adapter, :set_adapter_state), 2) ->
+        adapter.set_adapter_state.(adapter, state)
+
+      is_map(adapter) and is_function(Map.get(adapter, :set_adapter_state), 1) ->
+        adapter.set_adapter_state.(state)
+
+      true ->
+        :ok
     end
   rescue
     _ -> :ok
   end
 
-  defp normalize_eval_batch({:ok, %EvaluationBatch{} = batch}), do: {:ok, batch}
-  defp normalize_eval_batch(%EvaluationBatch{} = batch), do: {:ok, batch}
-  defp normalize_eval_batch({:error, reason}), do: {:error, reason}
+  defp normalize_eval_batch(result, opts) do
+    case result do
+      {:ok, %EvaluationBatch{} = batch} ->
+        validate_eval_batch(batch, opts)
 
-  defp normalize_eval_batch({outputs, scores}) when is_list(outputs) and is_list(scores) do
-    {:ok, %EvaluationBatch{outputs: outputs, scores: Enum.map(scores, &(&1 * 1.0))}}
+      %EvaluationBatch{} = batch ->
+        validate_eval_batch(batch, opts)
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {outputs, scores} when is_list(outputs) and is_list(scores) ->
+        %EvaluationBatch{outputs: outputs, scores: Enum.map(scores, &(&1 * 1.0))}
+        |> validate_eval_batch(opts)
+
+      {outputs, scores, objective_scores} when is_list(outputs) and is_list(scores) ->
+        %EvaluationBatch{
+          outputs: outputs,
+          scores: Enum.map(scores, &(&1 * 1.0)),
+          objective_scores: objective_scores
+        }
+        |> validate_eval_batch(opts)
+
+      other ->
+        {:error, {:invalid_evaluation_result, other}}
+    end
   end
 
-  defp normalize_eval_batch({outputs, scores, objective_scores})
-       when is_list(outputs) and is_list(scores) do
-    {:ok,
-     %EvaluationBatch{
-       outputs: outputs,
-       scores: Enum.map(scores, &(&1 * 1.0)),
-       objective_scores: objective_scores
-     }}
-  end
+  defp validate_eval_batch(%EvaluationBatch{} = batch, opts) do
+    batch = EvaluationBatch.normalize_scores(batch)
 
-  defp normalize_eval_batch(other), do: {:error, {:invalid_evaluation_result, other}}
+    case EvaluationBatch.validate(batch, opts) do
+      :ok -> {:ok, batch}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp normalize_dataset({:ok, dataset}) when is_map(dataset), do: {:ok, dataset}
   defp normalize_dataset(dataset) when is_map(dataset), do: {:ok, dataset}
   defp normalize_dataset({:error, reason}), do: {:error, reason}
   defp normalize_dataset(other), do: {:error, {:invalid_reflective_dataset, other}}
+
+  defp normalize_new_texts(:missing), do: :missing
 
   defp normalize_new_texts({:ok, new_texts}) when is_map(new_texts),
     do: {:ok, new_texts, %{}, %{}}
@@ -163,4 +237,8 @@ defmodule GEPA.Adapter.Dispatch do
   defp normalize_new_texts(new_texts) when is_map(new_texts), do: {:ok, new_texts, %{}, %{}}
   defp normalize_new_texts({:error, reason}), do: {:error, reason}
   defp normalize_new_texts(other), do: {:error, {:invalid_proposal_result, other}}
+
+  defp normalize_state({:ok, state}) when is_map(state), do: Map.new(state)
+  defp normalize_state(state) when is_map(state), do: Map.new(state)
+  defp normalize_state(_other), do: %{}
 end

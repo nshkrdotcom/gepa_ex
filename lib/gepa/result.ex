@@ -165,6 +165,8 @@ defmodule GEPA.Result do
   Get the best score achieved.
   """
   @spec best_score(t()) :: float()
+  def best_score(%__MODULE__{val_aggregate_scores: []}), do: 0.0
+
   def best_score(%__MODULE__{val_aggregate_scores: scores}) do
     Enum.max(scores)
   end

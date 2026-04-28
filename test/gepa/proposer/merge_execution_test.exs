@@ -168,7 +168,7 @@ defmodule GEPA.Proposer.MergeExecutionTest do
     test "schedule_if_needed respects budget limit" do
       proposer =
         Merge.new(
-          valset: DataLoader.List.new([]),
+          valset: DataLoader.List.new([:v0, :v1, :v2, :v3]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: true,
           max_merge_invocations: 2
@@ -219,7 +219,7 @@ defmodule GEPA.Proposer.MergeExecutionTest do
 
       proposer =
         Merge.new(
-          valset: DataLoader.List.new([]),
+          valset: DataLoader.List.new([:v0, :v1, :v2, :v3]),
           evaluator: fn _, _ -> {[], []} end,
           use_merge: true,
           max_merge_invocations: 5,
@@ -247,7 +247,7 @@ defmodule GEPA.Proposer.MergeExecutionTest do
     end
 
     Merge.new(
-      valset: DataLoader.List.new([%{input: "test", answer: "1"}]),
+      valset: DataLoader.List.new([%{input: "v0"}, %{input: "v1"}, %{input: "v2"}]),
       evaluator: evaluator,
       use_merge: true,
       max_merge_invocations: 10,

@@ -1,29 +1,16 @@
 defmodule GEPA.Proposer.Merge do
-  # Existing merge heuristics use a few compact nested selection steps.
-  # credo:disable-for-this-file Credo.Check.Refactor.Nesting
-
   @moduledoc """
-  Merge Proposer for GEPA optimization.
+  Official-compatible merge proposer.
 
-  Implements genealogy-based candidate merging:
-  - Finds merge candidates among Pareto front dominators
-  - Attempts merges via common ancestor selection
-  - Evaluates merged candidates on subsamples
-  - Returns proposals when merges improve over parents
-
-  ## Usage
-
-      proposer = GEPA.Proposer.Merge.new(
-        valset: valset,
-        evaluator: evaluator_fn,
-        use_merge: true,
-        max_merge_invocations: 5
-      )
-
-      {proposal, new_proposer} = GEPA.Proposer.Merge.propose(proposer, state)
+  Merge is scheduled after an accepted reflective mutation. The proposer finds
+  two Pareto-front programs with a useful common ancestor, merges component
+  changes relative to that ancestor, and evaluates the merged candidate on a
+  balanced validation subsample. Counter consumption and final acceptance are
+  handled by the engine, matching the Python implementation.
   """
 
   alias GEPA.{CandidateProposal, DataLoader, State}
+  alias GEPA.CandidateProposal.SubsampleEvaluation
   alias GEPA.Proposer.MergeUtils
 
   defstruct [
@@ -52,47 +39,24 @@ defmodule GEPA.Proposer.Merge do
           last_iter_found_new_program: boolean()
         }
 
-  @doc """
-  Creates a new Merge Proposer.
-
-  ## Options
-    - `:valset` - Validation data loader (required)
-    - `:evaluator` - Function to evaluate candidates (required)
-    - `:use_merge` - Enable/disable merge proposer (default: true)
-    - `:max_merge_invocations` - Maximum number of merge attempts (required)
-    - `:val_overlap_floor` - Minimum common validation IDs (default: 5)
-    - `:seed` - Random seed (default: 0)
-
-  ## Examples
-
-      proposer = Merge.new(
-        valset: valset,
-        evaluator: fn batch, candidate -> {outputs, scores} end,
-        max_merge_invocations: 5
-      )
-  """
   @spec new(keyword()) :: t()
   def new(opts) do
     valset = Keyword.fetch!(opts, :valset)
     evaluator = Keyword.fetch!(opts, :evaluator)
     max_merge_invocations = Keyword.fetch!(opts, :max_merge_invocations)
-
-    use_merge = Keyword.get(opts, :use_merge, true)
     val_overlap_floor = Keyword.get(opts, :val_overlap_floor, 5)
-    seed = Keyword.get(opts, :seed, 0)
 
-    # Validate
-    if val_overlap_floor <= 0 do
+    if not (is_integer(val_overlap_floor) and val_overlap_floor > 0) do
       raise ArgumentError, "val_overlap_floor should be a positive integer"
     end
 
     %__MODULE__{
       valset: valset,
       evaluator: evaluator,
-      use_merge: use_merge,
+      use_merge: Keyword.get(opts, :use_merge, true),
       max_merge_invocations: max_merge_invocations,
       val_overlap_floor: val_overlap_floor,
-      seed: seed,
+      seed: Keyword.get(opts, :seed, 0),
       merges_due: 0,
       total_merges_tested: 0,
       merges_performed: {[], []},
@@ -100,15 +64,6 @@ defmodule GEPA.Proposer.Merge do
     }
   end
 
-  @doc """
-  Schedules a merge attempt if conditions are met.
-
-  Increments merges_due counter when:
-  - Merge is enabled
-  - Budget not exhausted
-
-  Called by Engine after each iteration that finds a new program.
-  """
   @spec schedule_if_needed(t()) :: t()
   def schedule_if_needed(%__MODULE__{} = proposer) do
     if proposer.use_merge and proposer.total_merges_tested < proposer.max_merge_invocations do
@@ -118,109 +73,80 @@ defmodule GEPA.Proposer.Merge do
     end
   end
 
-  @doc """
-  Selects evaluation subsample for merged program.
-
-  Balances sample selection across three categories:
-  1. Where parent1 scores higher
-  2. Where parent2 scores higher
-  3. Where scores are equal
-
-  This provides a representative sample for quick merge evaluation.
-  """
-  @spec select_eval_subsample_for_merged_program(
-          t(),
-          scores1 :: %{term() => float()},
-          scores2 :: %{term() => float()},
-          keyword()
-        ) :: [term()]
-  def select_eval_subsample_for_merged_program(proposer, scores1, scores2, opts \\ []) do
+  @spec select_eval_subsample_for_merged_program(t(), map(), map(), keyword()) :: [term()]
+  def select_eval_subsample_for_merged_program(
+        %__MODULE__{} = proposer,
+        scores1,
+        scores2,
+        opts \\ []
+      ) do
     num_subsample_ids = Keyword.get(opts, :num_subsample_ids, 5)
 
-    # Find common validation IDs
     common_ids =
-      MapSet.intersection(
-        MapSet.new(Map.keys(scores1)),
-        MapSet.new(Map.keys(scores2))
-      )
+      scores1
+      |> Map.keys()
+      |> MapSet.new()
+      |> MapSet.intersection(MapSet.new(Map.keys(scores2)))
       |> MapSet.to_list()
+      |> Enum.sort()
 
-    # Partition by score differences
-    p1 = Enum.filter(common_ids, fn id -> scores1[id] > scores2[id] end)
-    p2 = Enum.filter(common_ids, fn id -> scores2[id] > scores1[id] end)
-    p3 = Enum.filter(common_ids, fn id -> id not in p1 and id not in p2 end)
+    cond do
+      num_subsample_ids <= 0 ->
+        []
 
-    # Take balanced samples
-    n_each = max(1, ceil(num_subsample_ids / 3))
+      common_ids == [] ->
+        []
 
-    selected =
-      [p1, p2, p3]
-      |> Enum.reduce([], fn bucket, acc ->
-        if length(acc) >= num_subsample_ids do
-          acc
-        else
-          available = Enum.filter(bucket, &(&1 not in acc))
-          take = [length(available), n_each, num_subsample_ids - length(acc)] |> Enum.min()
+      true ->
+        buckets = partition_common_ids(common_ids, scores1, scores2)
+        n_each = max(1, div(num_subsample_ids + 2, 3))
 
-          if take > 0 do
-            # Use seed for determinism
-            :rand.seed(:exsss, {proposer.seed, length(acc), 0})
-            sampled = Enum.take_random(available, take)
-            acc ++ sampled
-          else
-            acc
+        selected =
+          buckets
+          |> Enum.with_index()
+          |> Enum.reduce([], fn {bucket, bucket_idx}, acc ->
+            remaining = num_subsample_ids - length(acc)
+
+            if remaining <= 0 do
+              acc
+            else
+              available = Enum.reject(bucket, &(&1 in acc))
+              take = min(min(length(available), n_each), remaining)
+              acc ++ deterministic_take(available, take, {proposer.seed, bucket_idx, :bucket})
+            end
+          end)
+
+        remaining = num_subsample_ids - length(selected)
+
+        fill =
+          cond do
+            remaining <= 0 ->
+              []
+
+            length(Enum.reject(common_ids, &(&1 in selected))) >= remaining ->
+              common_ids
+              |> Enum.reject(&(&1 in selected))
+              |> deterministic_take(remaining, {proposer.seed, length(selected), :fill})
+
+            true ->
+              sample_with_replacement(
+                common_ids,
+                remaining,
+                {proposer.seed, length(selected), :repeat}
+              )
           end
-        end
-      end)
 
-    # Fill remaining if needed
-    remaining = num_subsample_ids - length(selected)
-
-    selected =
-      if remaining > 0 do
-        unused = Enum.filter(common_ids, &(&1 not in selected))
-
-        if length(unused) >= remaining do
-          :rand.seed(:exsss, {proposer.seed, length(selected), 1})
-          selected ++ Enum.take_random(unused, remaining)
-        else
-          # Need to allow repeats
-          :rand.seed(:exsss, {proposer.seed, length(selected), 2})
-          selected ++ Enum.take_random(common_ids, remaining)
-        end
-      else
-        selected
-      end
-
-    Enum.take(selected, num_subsample_ids)
+        Enum.take(selected ++ fill, num_subsample_ids)
+    end
   end
 
-  @doc """
-  Proposes a merged candidate if conditions are met.
-
-  Returns `{proposal, new_proposer}` where proposal may be nil if:
-  - Merge not enabled
-  - No merge scheduled
-  - No valid merge candidates found
-  - Merge doesn't improve over parents
-
-  ## Parameters
-    - `proposer` - Merge proposer state
-    - `state` - Current GEPA state
-
-  ## Returns
-    - `{%CandidateProposal{}, proposer}` if merge successful
-    - `{nil, proposer}` if no merge performed
-  """
   @spec propose(t(), State.t()) :: {CandidateProposal.t() | nil, t()}
   def propose(%__MODULE__{} = proposer, %State{} = state) do
-    # Check if merge should be attempted
-    should_merge =
-      proposer.use_merge and
-        proposer.last_iter_found_new_program and
-        proposer.merges_due > 0
+    should_merge? =
+      proposer.use_merge and proposer.last_iter_found_new_program and proposer.merges_due > 0 and
+        proposer.total_merges_tested < proposer.max_merge_invocations
 
-    if should_merge do
+    if should_merge? do
       attempt_merge(proposer, state)
     else
       {nil, proposer}
@@ -228,15 +154,12 @@ defmodule GEPA.Proposer.Merge do
   end
 
   defp attempt_merge(proposer, state) do
-    # Calculate aggregate scores for all programs
     program_scores = calculate_aggregate_scores(state)
 
-    # Find dominator programs on Pareto front
     merge_candidates =
-      GEPA.Utils.find_dominator_programs(
-        state.program_at_pareto_front_valset,
-        program_scores
-      )
+      state
+      |> State.get_pareto_front_mapping()
+      |> GEPA.Utils.find_dominator_programs(program_scores)
 
     if length(merge_candidates) < 2 do
       {nil, proposer}
@@ -245,134 +168,183 @@ defmodule GEPA.Proposer.Merge do
              MergeUtils.find_common_ancestor_pair(
                merge_candidates,
                state.parent_program_for_candidate,
-               program_scores
+               program_scores,
+               merges_performed: proposer.merges_performed,
+               program_candidates: state.program_candidates
              ),
            true <- has_val_support_overlap?(proposer, state, id1, id2),
-           filtered when is_list(filtered) <-
-             MergeUtils.filter_ancestors(
-               id1,
-               id2,
-               [ancestor],
-               proposer.merges_performed,
-               program_scores,
-               state.program_candidates
+           {merged_candidate, descriptor} <- merge_predictors(state, ancestor, id1, id2),
+           false <- descriptor_already_used?(descriptor, proposer.merges_performed),
+           subsample_ids when subsample_ids != [] <-
+             select_eval_subsample_for_merged_program(
+               proposer,
+               Enum.at(state.prog_candidate_val_subscores, id1, %{}),
+               Enum.at(state.prog_candidate_val_subscores, id2, %{}),
+               num_subsample_ids: 5
              ),
-           true <- Enum.member?(filtered, ancestor) do
-        # Perform the merge
-        merged_candidate = merge_predictors(state, ancestor, id1, id2)
+           {:ok, outputs, scores, objective_scores} <-
+             evaluate_merge(proposer, subsample_ids, merged_candidate) do
+        parent1_scores = parent_scores(state, id1, subsample_ids)
+        parent2_scores = parent_scores(state, id2, subsample_ids)
 
-        # Select subsample for evaluation
-        subsample_ids =
-          select_eval_subsample_for_merged_program(
-            proposer,
-            state.prog_candidate_val_subscores[id1],
-            state.prog_candidate_val_subscores[id2],
-            num_subsample_ids: 5
-          )
-
-        # Evaluate merged candidate on subsample
-        batch = DataLoader.fetch(proposer.valset, subsample_ids)
-        {_outputs, scores} = proposer.evaluator.(batch, merged_candidate)
-
-        # Get parent scores on same subsample
-        parent1_scores = Enum.map(subsample_ids, &state.prog_candidate_val_subscores[id1][&1])
-        parent2_scores = Enum.map(subsample_ids, &state.prog_candidate_val_subscores[id2][&1])
-
-        # Create proposal
         proposal = %CandidateProposal{
           candidate: merged_candidate,
           parent_program_ids: [id1, id2],
           subsample_indices: subsample_ids,
           subsample_scores_before: [Enum.sum(parent1_scores), Enum.sum(parent2_scores)],
           subsample_scores_after: scores,
+          eval_after: %SubsampleEvaluation{
+            scores: scores,
+            outputs: outputs,
+            objective_scores: objective_scores
+          },
           tag: "merge",
-          metadata: %{ancestor: ancestor}
+          metadata: %{
+            ancestor: ancestor,
+            outputs: outputs,
+            objective_scores: objective_scores,
+            num_metric_calls: length(scores),
+            parent1_scores: parent1_scores,
+            parent2_scores: parent2_scores
+          }
         }
 
-        # Update proposer state
-        new_proposer = %{
-          proposer
-          | merges_due: proposer.merges_due - 1,
-            total_merges_tested: proposer.total_merges_tested + 1
-        }
-
-        # Record merge attempt
-        {used_triplets, used_descriptors} = new_proposer.merges_performed
-
-        new_proposer = %{
-          new_proposer
-          | merges_performed: {[{id1, id2, ancestor} | used_triplets], used_descriptors}
-        }
-
-        {proposal, new_proposer}
+        proposer = record_merge_attempt(proposer, id1, id2, ancestor, descriptor)
+        {proposal, proposer}
       else
         _ -> {nil, proposer}
       end
     end
   end
 
+  defp partition_common_ids(common_ids, scores1, scores2) do
+    parent1_better = Enum.filter(common_ids, &(Map.fetch!(scores1, &1) > Map.fetch!(scores2, &1)))
+    parent2_better = Enum.filter(common_ids, &(Map.fetch!(scores2, &1) > Map.fetch!(scores1, &1)))
+
+    equal_or_tied =
+      Enum.filter(common_ids, fn id ->
+        Map.fetch!(scores1, id) == Map.fetch!(scores2, id)
+      end)
+
+    [parent1_better, parent2_better, equal_or_tied]
+  end
+
+  defp deterministic_take(_items, count, _salt) when count <= 0, do: []
+
+  defp deterministic_take(items, count, salt) do
+    items
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {item, idx} -> :erlang.phash2({salt, item, idx}) end)
+    |> Enum.take(count)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp sample_with_replacement([], _count, _salt), do: []
+  defp sample_with_replacement(_items, count, _salt) when count <= 0, do: []
+
+  defp sample_with_replacement(items, count, salt) do
+    shuffled = deterministic_take(items, length(items), salt)
+
+    0..(count - 1)
+    |> Enum.map(fn idx -> Enum.at(shuffled, rem(idx, length(shuffled))) end)
+  end
+
+  defp evaluate_merge(proposer, subsample_ids, candidate) do
+    batch = DataLoader.fetch(proposer.valset, subsample_ids)
+
+    case proposer.evaluator.(batch, candidate) do
+      {outputs, scores} when is_list(outputs) and is_list(scores) ->
+        {:ok, outputs, Enum.map(scores, &(&1 * 1.0)), nil}
+
+      {outputs, scores, objective_scores} when is_list(outputs) and is_list(scores) ->
+        {:ok, outputs, Enum.map(scores, &(&1 * 1.0)), objective_scores}
+
+      {:ok, %GEPA.EvaluationBatch{} = eval_batch} ->
+        {:ok, eval_batch.outputs, eval_batch.scores, eval_batch.objective_scores}
+
+      %GEPA.EvaluationBatch{} = eval_batch ->
+        {:ok, eval_batch.outputs, eval_batch.scores, eval_batch.objective_scores}
+
+      other ->
+        {:error, {:invalid_merge_evaluator_result, other}}
+    end
+  rescue
+    exception -> {:error, exception}
+  end
+
   defp has_val_support_overlap?(proposer, state, id1, id2) do
     common_ids =
       MapSet.intersection(
-        MapSet.new(Map.keys(state.prog_candidate_val_subscores[id1])),
-        MapSet.new(Map.keys(state.prog_candidate_val_subscores[id2]))
+        Enum.at(state.prog_candidate_val_subscores, id1, %{}) |> Map.keys() |> MapSet.new(),
+        Enum.at(state.prog_candidate_val_subscores, id2, %{}) |> Map.keys() |> MapSet.new()
       )
 
     MapSet.size(common_ids) >= proposer.val_overlap_floor
   end
 
-  # Calculate aggregate validation scores for all programs
   defp calculate_aggregate_scores(state) do
-    # prog_candidate_val_subscores is a list indexed by program ID
-    # Each element is a map of val_id => score
     state.prog_candidate_val_subscores
     |> Enum.with_index()
     |> Enum.map(fn {_score_map, idx} ->
       {avg, _count} = State.get_program_score(state, idx)
       {idx, avg}
     end)
-    |> Enum.into(%{})
+    |> Map.new()
+  end
+
+  defp parent_scores(state, parent_idx, subsample_ids) do
+    score_map = Enum.at(state.prog_candidate_val_subscores, parent_idx, %{})
+    Enum.map(subsample_ids, &Map.get(score_map, &1, 0.0))
   end
 
   defp merge_predictors(state, ancestor, id1, id2) do
     ancestor_candidate = Enum.at(state.program_candidates, ancestor)
     id1_candidate = Enum.at(state.program_candidates, id1)
     id2_candidate = Enum.at(state.program_candidates, id2)
-
-    # Calculate scores for comparison
     {id1_score, _} = State.get_program_score(state, id1)
     {id2_score, _} = State.get_program_score(state, id2)
 
-    # Start with ancestor's predictors
-    merged = ancestor_candidate
+    Enum.reduce(Map.keys(ancestor_candidate), {ancestor_candidate, []}, fn component_name,
+                                                                           {merged, descriptor} ->
+      anc_val = Map.get(ancestor_candidate, component_name)
+      id1_val = Map.get(id1_candidate, component_name)
+      id2_val = Map.get(id2_candidate, component_name)
 
-    # For each component, intelligently select from parents
-    Enum.reduce(Map.keys(ancestor_candidate), merged, fn component_name, acc ->
-      anc_val = ancestor_candidate[component_name]
-      id1_val = id1_candidate[component_name]
-      id2_val = id2_candidate[component_name]
+      {selected_value, selected_from} =
+        cond do
+          anc_val == id1_val and id1_val != id2_val ->
+            {id2_val, {component_name, id2}}
 
-      # Merging logic:
-      cond do
-        # If one child kept ancestor's value, try the other's change
-        anc_val == id1_val and id1_val != id2_val ->
-          Map.put(acc, component_name, id2_val)
+          anc_val == id2_val and id1_val != id2_val ->
+            {id1_val, {component_name, id1}}
 
-        anc_val == id2_val and id1_val != id2_val ->
-          Map.put(acc, component_name, id1_val)
+          anc_val != id1_val and anc_val != id2_val and id1_val != id2_val ->
+            if id1_score > id2_score do
+              {id1_val, {component_name, id1}}
+            else
+              {id2_val, {component_name, id2}}
+            end
 
-        # Both differ from ancestor: pick higher-scoring parent
-        anc_val != id1_val and anc_val != id2_val ->
-          if id1_score > id2_score do
-            Map.put(acc, component_name, id1_val)
-          else
-            Map.put(acc, component_name, id2_val)
-          end
+          true ->
+            {id1_val, {component_name, :unchanged}}
+        end
 
-        # All same, or id1 == id2: keep id1's value
-        true ->
-          Map.put(acc, component_name, id1_val)
-      end
+      {Map.put(merged, component_name, selected_value), [selected_from | descriptor]}
     end)
+  end
+
+  defp descriptor_already_used?(descriptor, {_used_triplets, used_descriptors}) do
+    Enum.sort(descriptor) in used_descriptors
+  end
+
+  defp record_merge_attempt(proposer, id1, id2, ancestor, descriptor) do
+    {used_triplets, used_descriptors} = proposer.merges_performed
+    triplet = MergeUtils.canonical_triplet(id1, id2, ancestor)
+    descriptor = Enum.sort(descriptor)
+
+    %{
+      proposer
+      | merges_performed: {[triplet | used_triplets], [descriptor | used_descriptors]}
+    }
   end
 end

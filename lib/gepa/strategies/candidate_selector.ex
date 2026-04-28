@@ -61,7 +61,7 @@ defmodule GEPA.Strategies.CandidateSelector.Pareto do
 
     # Use Pareto utilities to select
     Pareto.select_from_pareto_front(
-      state.program_at_pareto_front_valset,
+      GEPA.State.get_pareto_front_mapping(state),
       scores,
       rand_state
     )
@@ -158,7 +158,7 @@ defmodule GEPA.Strategies.CandidateSelector.TopKPareto do
       |> MapSet.new()
 
     filtered =
-      state.program_at_pareto_front_valset
+      GEPA.State.get_pareto_front_mapping(state)
       |> Map.values()
       |> Enum.flat_map(&front_to_list/1)
       |> Enum.filter(&MapSet.member?(top_k, &1))

@@ -1,110 +1,54 @@
 defmodule GEPA.DataLoader do
   @moduledoc """
-  Protocol for data access with flexible ID types.
+  Protocol-style data access abstraction.
 
-  DataLoader provides an abstraction over data storage, allowing GEPA
-  to work with in-memory lists, databases, lazy streams, etc.
-
-  ## Required Callbacks
-
-  - `all_ids/1`: Return all available data IDs
-  - `fetch/2`: Fetch data instances by ID
-  - `size/1`: Return total count of data instances
-
-  ## Example Implementation
-
-      defmodule MyDatabaseLoader do
-        @behaviour GEPA.DataLoader
-
-        defstruct [:db_conn]
-
-        @impl true
-        def all_ids(%__MODULE__{db_conn: conn}) do
-          DB.query!(conn, "SELECT id FROM examples")
-        end
-
-        @impl true
-        def fetch(%__MODULE__{db_conn: conn}, ids) do
-          DB.query!(conn, "SELECT * FROM examples WHERE id IN (?)", [ids])
-        end
-
-        @impl true
-        def size(%__MODULE__{db_conn: conn}) do
-          DB.query_one!(conn, "SELECT COUNT(*) FROM examples")
-        end
-      end
+  The official Python implementation normalizes in-memory lists into a
+  `DataLoader`. The Elixir port keeps the same seam while allowing custom
+  loader structs to provide stable IDs and ordered fetches.
   """
 
   @type data_id :: term()
   @type data_inst :: term()
   @type t :: term()
 
-  @doc """
-  Return ordered list of all available data IDs.
-
-  The order should be stable across calls.
-  """
   @callback all_ids(t()) :: [data_id()]
-
-  @doc """
-  Fetch data instances for given IDs.
-
-  Must preserve order: `fetch(loader, [id1, id2])` returns data in same order.
-
-  ## Contract
-
-  - `length(fetch(loader, ids)) == length(ids)`
-  - Order must match input IDs
-  - Missing IDs may raise or return nil - behavior is implementation-defined
-  """
   @callback fetch(t(), [data_id()]) :: [data_inst()]
-
-  @doc """
-  Return total number of data instances.
-  """
   @callback size(t()) :: non_neg_integer()
 
-  @doc """
-  Delegates to the implementation's all_ids/1.
-  """
+  @doc "Normalize raw lists into `GEPA.DataLoader.List`; pass loader structs through."
+  @spec ensure([data_inst()] | t() | nil) :: t() | nil
+  def ensure(nil), do: nil
+  def ensure(%GEPA.DataLoader.List{} = loader), do: loader
+  def ensure(items) when is_list(items), do: GEPA.DataLoader.List.new(items)
+
+  def ensure(%module{} = loader) do
+    if function_exported?(module, :all_ids, 1) and function_exported?(module, :fetch, 2) do
+      loader
+    else
+      raise ArgumentError,
+            "expected a list or DataLoader-compatible struct, got #{inspect(loader)}"
+    end
+  end
+
+  def ensure(other) do
+    raise ArgumentError, "expected a list or DataLoader-compatible struct, got #{inspect(other)}"
+  end
+
   @spec all_ids(t()) :: [data_id()]
-  def all_ids(%module{} = loader) do
-    module.all_ids(loader)
-  end
+  def all_ids(items) when is_list(items), do: all_ids(GEPA.DataLoader.List.new(items))
+  def all_ids(%module{} = loader), do: module.all_ids(loader)
 
-  @doc """
-  Delegates to the implementation's fetch/2.
-  """
   @spec fetch(t(), [data_id()]) :: [data_inst()]
-  def fetch(%module{} = loader, ids) do
-    module.fetch(loader, ids)
-  end
+  def fetch(items, ids) when is_list(items), do: fetch(GEPA.DataLoader.List.new(items), ids)
+  def fetch(%module{} = loader, ids) when is_list(ids), do: module.fetch(loader, ids)
 
-  @doc """
-  Delegates to the implementation's size/1.
-  """
   @spec size(t()) :: non_neg_integer()
-  def size(%module{} = loader) do
-    module.size(loader)
-  end
+  def size(items) when is_list(items), do: length(items)
+  def size(%module{} = loader), do: module.size(loader)
 end
 
 defmodule GEPA.DataLoader.List do
-  @moduledoc """
-  Simple in-memory list-based data loader.
-
-  Uses integer indices as data IDs.
-
-  ## Example
-
-      loader = GEPA.DataLoader.List.new([
-        %{input: "Q1", answer: "A1"},
-        %{input: "Q2", answer: "A2"}
-      ])
-
-      GEPA.DataLoader.all_ids(loader)  # => [0, 1]
-      GEPA.DataLoader.fetch(loader, [1, 0])  # => [%{input: "Q2", ...}, %{input: "Q1", ...}]
-  """
+  @moduledoc "In-memory loader using zero-based integer IDs."
 
   @behaviour GEPA.DataLoader
 
@@ -112,29 +56,28 @@ defmodule GEPA.DataLoader.List do
 
   @type t :: %__MODULE__{items: [term()]}
 
-  @doc """
-  Create a list-based data loader.
-  """
   @spec new([term()]) :: t()
-  def new(items) when is_list(items) do
-    %__MODULE__{items: items}
-  end
+  def new(items) when is_list(items), do: %__MODULE__{items: items}
 
-  @impl true
-  def all_ids(%__MODULE__{items: []}), do: []
+  @doc "Append items while preserving existing IDs."
+  @spec add_items(t(), [term()]) :: t()
+  def add_items(%__MODULE__{items: items} = loader, new_items) when is_list(new_items) do
+    %{loader | items: items ++ new_items}
+  end
 
   @impl true
   def all_ids(%__MODULE__{items: items}) do
-    Enum.to_list(0..(length(items) - 1))
+    case length(items) do
+      0 -> []
+      n -> Enum.to_list(0..(n - 1))
+    end
   end
 
   @impl true
-  def fetch(%__MODULE__{items: items}, ids) do
-    Enum.map(ids, &Enum.at(items, &1))
+  def fetch(%__MODULE__{items: items}, ids) when is_list(ids) do
+    Enum.map(ids, &Enum.fetch!(items, &1))
   end
 
   @impl true
-  def size(%__MODULE__{items: items}) do
-    length(items)
-  end
+  def size(%__MODULE__{items: items}), do: length(items)
 end

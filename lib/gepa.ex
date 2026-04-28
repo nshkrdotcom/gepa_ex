@@ -164,6 +164,7 @@ defmodule GEPA do
     train_loader = ensure_loader(fetch_required!(opts, :trainset))
     val_loader = build_val_loader(opts, train_loader)
     adapter = build_adapter(opts)
+    validate_adapter_configuration!(opts, adapter)
     seed = Keyword.get(opts, :seed, 0)
     reflection_minibatch_size = Keyword.get(opts, :reflection_minibatch_size, 3)
 
@@ -384,8 +385,11 @@ defmodule GEPA do
         valset: val_loader,
         evaluator: fn batch, candidate ->
           case Dispatch.evaluate(adapter, batch, candidate, false) do
-            {:ok, eval_batch} -> {eval_batch.outputs, eval_batch.scores}
-            {:error, reason} -> raise "merge evaluation failed: #{inspect(reason)}"
+            {:ok, eval_batch} ->
+              {eval_batch.outputs, eval_batch.scores, eval_batch.objective_scores}
+
+            {:error, reason} ->
+              raise "merge evaluation failed: #{inspect(reason)}"
           end
         end,
         use_merge: true,
@@ -393,6 +397,49 @@ defmodule GEPA do
         val_overlap_floor: Keyword.get(opts, :merge_val_overlap_floor, 5),
         seed: Keyword.get(opts, :seed, 0)
       )
+    end
+  end
+
+  defp validate_adapter_configuration!(opts, adapter) do
+    user_adapter? = Keyword.has_key?(opts, :adapter) and not is_nil(Keyword.get(opts, :adapter))
+    task_lm = Keyword.get(opts, :task_lm, Keyword.get(opts, :model))
+    evaluator = Keyword.get(opts, :evaluator)
+
+    if user_adapter? and not is_nil(task_lm) do
+      raise ArgumentError,
+            "Since an adapter is provided, GEPA does not require :task_lm or :model. Set those options to nil."
+    end
+
+    if user_adapter? and not is_nil(evaluator) do
+      raise ArgumentError,
+            "Since an adapter is provided, GEPA does not require :evaluator. Set :evaluator to nil."
+    end
+
+    adapter_has_propose? = Dispatch.has_propose_new_texts?(adapter)
+    custom_proposer? = not is_nil(Keyword.get(opts, :custom_candidate_proposer))
+
+    reflection_lm? =
+      not is_nil(Keyword.get(opts, :reflection_llm, Keyword.get(opts, :reflection_lm)))
+
+    template_present? =
+      Keyword.has_key?(opts, :proposal_template) or
+        Keyword.has_key?(opts, :reflection_prompt_template)
+
+    cond do
+      adapter_has_propose? and custom_proposer? ->
+        raise ArgumentError,
+              "Cannot provide both adapter.propose_new_texts and :custom_candidate_proposer. Please use only one custom proposal method."
+
+      adapter_has_propose? and template_present? ->
+        raise ArgumentError,
+              "adapter.propose_new_texts is present, so :proposal_template/:reflection_prompt_template would be ignored. Set the template option to nil."
+
+      not adapter_has_propose? and not custom_proposer? and not reflection_lm? ->
+        raise ArgumentError,
+              "reflection_llm was not provided, adapter does not provide propose_new_texts, and custom_candidate_proposer was not provided."
+
+      true ->
+        :ok
     end
   end
 
@@ -453,10 +500,5 @@ defmodule GEPA do
     end
   end
 
-  defp ensure_loader(data) when is_list(data) do
-    GEPA.DataLoader.List.new(data)
-  end
-
-  defp ensure_loader(%GEPA.DataLoader.List{} = loader), do: loader
-  defp ensure_loader(loader), do: loader
+  defp ensure_loader(data), do: GEPA.DataLoader.ensure(data)
 end

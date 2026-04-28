@@ -104,7 +104,7 @@ defmodule GEPA.Proposer.Reflective do
           | {:error, term(), t(), GEPA.State.t()}
           | {:none, t(), GEPA.State.t(), map()}
   def propose(%__MODULE__{} = proposer, state) do
-    rand_state = :rand.seed(:exsss, {state.i, 42, state.total_num_evals})
+    rand_state = seeded_rand_state(state)
 
     {candidate_idx, updated_selector, _new_rand} =
       select_candidate(proposer.candidate_selector, state, rand_state)
@@ -216,8 +216,17 @@ defmodule GEPA.Proposer.Reflective do
 
   # Private helpers
 
+  defp all_perfect?([], _perfect_score), do: false
+
   defp all_perfect?(scores, perfect_score) do
     Enum.all?(scores, &(&1 >= perfect_score))
+  end
+
+  defp seeded_rand_state(state) do
+    a = :erlang.phash2({__MODULE__, :iteration, state.i})
+    b = :erlang.phash2({__MODULE__, :evals, state.total_num_evals})
+    c = :erlang.phash2({__MODULE__, :programs, length(state.program_candidates)})
+    :rand.seed(:exsss, {a + 1, b + 1, c + 1})
   end
 
   defp evaluation_metric_calls(eval_batch, ids) do
@@ -250,12 +259,22 @@ defmodule GEPA.Proposer.Reflective do
 
   defp next_batch(sampler, trainset, state, minibatch_size) do
     cond do
-      is_map(sampler) and function_exported?(sampler.__struct__, :next_batch, 3) ->
+      is_map(sampler) and Map.has_key?(sampler, :__struct__) and
+          function_exported?(sampler.__struct__, :next_batch, 3) ->
         sampler.__struct__.next_batch(sampler, trainset, state)
 
+      is_map(sampler) and Map.has_key?(sampler, :__struct__) and
+          function_exported?(sampler.__struct__, :next_minibatch_ids, 3) ->
+        {sampler.__struct__.next_minibatch_ids(sampler, trainset, state), sampler}
+
       is_atom(sampler) and function_exported?(sampler, :next_batch, 3) ->
-        {batch, _sampler} = sampler.next_batch(sampler, trainset, state)
-        {batch, sampler}
+        case sampler.next_batch(sampler, trainset, state) do
+          {batch, updated_sampler} -> {batch, updated_sampler}
+          batch when is_list(batch) -> {batch, sampler}
+        end
+
+      is_atom(sampler) and function_exported?(sampler, :next_minibatch_ids, 2) ->
+        {sampler.next_minibatch_ids(trainset, state), sampler}
 
       true ->
         GEPA.DataLoader.all_ids(trainset)
@@ -294,7 +313,8 @@ defmodule GEPA.Proposer.Reflective do
       is_atom(selector) and function_exported?(selector, :select, 3) ->
         selector.select(state, candidate_idx, candidate)
 
-      is_map(selector) and function_exported?(selector.__struct__, :select, 6) ->
+      is_map(selector) and Map.has_key?(selector, :__struct__) and
+          function_exported?(selector.__struct__, :select, 6) ->
         selector.__struct__.select(
           selector,
           state,
@@ -304,7 +324,8 @@ defmodule GEPA.Proposer.Reflective do
           candidate
         )
 
-      is_map(selector) and function_exported?(selector.__struct__, :select, 4) ->
+      is_map(selector) and Map.has_key?(selector, :__struct__) and
+          function_exported?(selector.__struct__, :select, 4) ->
         selector.__struct__.select(selector, state, candidate_idx, candidate)
 
       true ->
