@@ -1,4 +1,8 @@
 defmodule GEPA.LM do
+  require Logger
+
+  alias GEPA.LLM.{Client, Request, Response}
+
   @moduledoc """
   Upstream-compatible LM wrapper for reflection models.
 
@@ -8,9 +12,32 @@ defmodule GEPA.LM do
   a normalized `GEPA.LLM` client.
   """
 
-  defstruct [:model, :client, :counter, defaults: []]
+  defstruct [:model, :client, :counter, defaults: [], completion_kwargs: []]
 
-  @type t :: %__MODULE__{model: term(), client: term(), counter: pid(), defaults: keyword()}
+  @type t :: %__MODULE__{
+          model: term(),
+          client: term(),
+          counter: pid(),
+          defaults: keyword(),
+          completion_kwargs: keyword()
+        }
+
+  @request_opt_keys [
+    :messages,
+    :system,
+    :schema,
+    :tools,
+    :tool_choice,
+    :stream?,
+    :temperature,
+    :model,
+    :max_tokens,
+    :top_p,
+    :timeout,
+    :session,
+    :provider_opts,
+    :metadata
+  ]
 
   @spec new(term(), keyword()) :: t()
   def new(model, opts \\ []) do
@@ -23,7 +50,8 @@ defmodule GEPA.LM do
       model: model,
       client: Keyword.get(opts, :client, model),
       counter: counter,
-      defaults: opts
+      defaults: Keyword.delete(opts, :client),
+      completion_kwargs: Keyword.delete(opts, :client)
     }
   end
 
@@ -33,11 +61,13 @@ defmodule GEPA.LM do
 
   def complete(%__MODULE__{} = lm, prompt, opts) do
     tokens_in = estimate_tokens(prompt)
+    opts = Keyword.merge(lm.defaults, opts)
 
-    result = GEPA.LLM.complete(lm.client, prompt, Keyword.merge(lm.defaults, opts))
+    result = complete_with_client(lm.client, lm.model, prompt, opts)
 
     case result do
       {:ok, text} ->
+        text = String.trim(text)
         update(lm, tokens_in, estimate_tokens(text), 0.0)
         {:ok, text}
 
@@ -48,6 +78,45 @@ defmodule GEPA.LM do
   end
 
   def complete(other, prompt, opts), do: GEPA.LLM.complete(other, prompt, opts)
+
+  defp complete_with_client(%Client{} = client, model, prompt, opts) do
+    request =
+      prompt
+      |> Request.from_prompt(prepare_request_opts(model, opts))
+
+    with {:ok, %Response{} = response} <- client.adapter.complete(client, request) do
+      warn_if_truncated(response)
+      {:ok, Response.text(response)}
+    end
+  end
+
+  defp complete_with_client(client, _model, prompt, opts),
+    do: GEPA.LLM.complete(client, prompt, opts)
+
+  defp prepare_request_opts(model, opts) do
+    provider_opts = Keyword.get(opts, :provider_opts, [])
+    request_opts = Keyword.take(opts, @request_opt_keys)
+
+    extra_provider_opts =
+      opts
+      |> Keyword.drop(@request_opt_keys)
+      |> Keyword.delete(:client)
+
+    request_opts
+    |> Keyword.put(:provider_opts, Keyword.merge(provider_opts, extra_provider_opts))
+    |> maybe_put_model(model)
+  end
+
+  defp maybe_put_model(opts, model) when is_binary(model),
+    do: Keyword.put_new(opts, :model, model)
+
+  defp maybe_put_model(opts, _model), do: opts
+
+  defp warn_if_truncated(%Response{stop_reason: reason}) when reason in [:length, "length"] do
+    Logger.warning("LM response was truncated by the provider")
+  end
+
+  defp warn_if_truncated(_response), do: :ok
 
   @spec batch_complete(t(), [GEPA.LLM.prompt()], keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
