@@ -14,9 +14,9 @@ defmodule GEPA.Seed do
   @spec build_prompt(keyword() | map()) :: String.t()
   def build_prompt(opts) do
     opts = Map.new(opts)
-    objective = Map.get(opts, :objective) || Map.get(opts, "objective") || ""
-    background = Map.get(opts, :background) || Map.get(opts, "background")
-    dataset = Map.get(opts, :dataset) || Map.get(opts, "dataset") || []
+    objective = get_opt(opts, :objective) || ""
+    background = get_opt(opts, :background)
+    dataset = get_opt(opts, :dataset)
 
     sections = [
       "## Goal\n\n#{objective}",
@@ -40,10 +40,15 @@ defmodule GEPA.Seed do
   def generate(lm, opts) do
     opts = Map.new(opts)
     key = Map.get(opts, :candidate_key, @default_key)
+    logger = get_opt(opts, :logger)
     prompt = build_prompt(opts)
 
+    log(logger, "Generating initial seed candidate via LLM...")
+
     with {:ok, text} <- GEPA.LLM.complete(lm, prompt) do
-      {:ok, %{key => extract_fenced_text(text)}}
+      candidate = extract_fenced_text(text)
+      log(logger, "Generated seed candidate (#{String.length(candidate)} chars)")
+      {:ok, %{key => candidate}}
     end
   end
 
@@ -76,6 +81,25 @@ defmodule GEPA.Seed do
   end
 
   def extract_fenced_text(other), do: to_string(other)
+
+  defp get_opt(opts, key) do
+    cond do
+      Map.has_key?(opts, key) -> Map.get(opts, key)
+      Map.has_key?(opts, Atom.to_string(key)) -> Map.get(opts, Atom.to_string(key))
+      true -> nil
+    end
+  end
+
+  defp log(nil, _message), do: :ok
+
+  defp log(logger, message) when is_function(logger, 1) do
+    logger.(message)
+    :ok
+  end
+
+  defp log(%{log: logger}, message) when is_function(logger, 1), do: log(logger, message)
+  defp log(%{"log" => logger}, message) when is_function(logger, 1), do: log(logger, message)
+  defp log(_logger, _message), do: :ok
 
   defp background_section(nil), do: nil
   defp background_section(""), do: nil

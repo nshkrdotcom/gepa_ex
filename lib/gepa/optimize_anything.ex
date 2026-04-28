@@ -1420,7 +1420,7 @@ defmodule GEPA.OptimizeAnything do
   defp seed_candidate(%Config{seed_candidate: nil} = config) do
     case config.reflection.reflection_lm do
       nil ->
-        {:error, :reflection_lm_required_for_seedless_mode}
+        {:error, %ArgumentError{message: "reflection_lm is required when seed_candidate is nil"}}
 
       lm ->
         opts = [
