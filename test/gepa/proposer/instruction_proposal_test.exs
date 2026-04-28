@@ -331,6 +331,106 @@ defmodule GEPA.Proposer.InstructionProposalTest do
     end
   end
 
+  describe "upstream output extractor parity" do
+    test "extracts instructions from upstream fenced-code scenarios" do
+      cases = [
+        {
+          """
+          Here's the improved instruction:
+          ```markdown
+          This is the actual instruction content.
+          It should not include the word 'markdown'.
+          ```
+          """,
+          "This is the actual instruction content.\nIt should not include the word 'markdown'."
+        },
+        {
+          """
+          Here's the instruction:
+          ```
+          This is the instruction without language specifier.
+          ```
+          Done.
+          """,
+          "This is the instruction without language specifier."
+        },
+        {
+          """
+          ```markdown
+          Don't get confused by these backticks: ```
+          ```
+          """,
+          "Don't get confused by these backticks: ```"
+        },
+        {
+          """
+          ```
+
+          Here are the instructions.
+
+          ```
+          """,
+          "Here are the instructions."
+        },
+        {
+          """
+          Begin text
+          ```plaintext
+          Begin instructions
+
+          ```
+          Internal block 1
+          ```
+
+          ```python
+          Internal block 2
+          ```
+
+          End instructions
+          ```
+          End text
+          """,
+          "Begin instructions\n\n```\nInternal block 1\n```\n\n```python\nInternal block 2\n```\n\nEnd instructions"
+        },
+        {
+          """
+          ```text
+          Here are the instructions.
+          """,
+          "Here are the instructions."
+        },
+        {
+          """
+          Here are the instructions.
+          ```
+          """,
+          "Here are the instructions."
+        },
+        {
+          """
+          Here are some backticks:
+          ```
+          I hope you didn't get confused.
+          """,
+          "Here are some backticks:\n```\nI hope you didn't get confused."
+        },
+        {
+          """
+          Here are the instructions.
+          """,
+          "Here are the instructions."
+        }
+      ]
+
+      for {lm_output, expected_instruction} <- cases do
+        proposal = InstructionProposal.new(llm: Mock.new(responses: [lm_output]))
+
+        assert {:ok, ^expected_instruction} =
+                 InstructionProposal.propose(proposal, "comp", "instruction", [])
+      end
+    end
+  end
+
   describe "propose_batch/4" do
     test "proposes for multiple components" do
       # Return different responses based on call order
