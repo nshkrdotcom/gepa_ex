@@ -401,6 +401,11 @@ defmodule GEPA do
   end
 
   defp validate_adapter_configuration!(opts, adapter) do
+    validate_user_adapter_conflicts!(opts)
+    validate_proposal_mechanism_consistency!(opts, adapter)
+  end
+
+  defp validate_user_adapter_conflicts!(opts) do
     user_adapter? = Keyword.has_key?(opts, :adapter) and not is_nil(Keyword.get(opts, :adapter))
     task_lm = Keyword.get(opts, :task_lm, Keyword.get(opts, :model))
     evaluator = Keyword.get(opts, :evaluator)
@@ -414,33 +419,61 @@ defmodule GEPA do
       raise ArgumentError,
             "Since an adapter is provided, GEPA does not require :evaluator. Set :evaluator to nil."
     end
+  end
 
+  defp validate_proposal_mechanism_consistency!(opts, adapter) do
+    case proposal_mechanism_error(opts, adapter) do
+      nil -> :ok
+      message -> raise ArgumentError, message
+    end
+  end
+
+  defp proposal_mechanism_error(opts, adapter) do
     adapter_has_propose? = Dispatch.has_propose_new_texts?(adapter)
-    custom_proposer? = not is_nil(Keyword.get(opts, :custom_candidate_proposer))
+    custom_proposer? = custom_candidate_proposer?(opts)
+    reflection_lm? = reflection_lm?(opts)
+    template_present? = proposal_template_present?(opts)
 
-    reflection_lm? =
-      not is_nil(Keyword.get(opts, :reflection_llm, Keyword.get(opts, :reflection_lm)))
+    proposal_mechanism_error(
+      adapter_has_propose?,
+      custom_proposer?,
+      reflection_lm?,
+      template_present?
+    )
+  end
 
-    template_present? =
-      Keyword.has_key?(opts, :proposal_template) or
-        Keyword.has_key?(opts, :reflection_prompt_template)
-
+  defp proposal_mechanism_error(
+         adapter_has_propose?,
+         custom_proposer?,
+         reflection_lm?,
+         template_present?
+       ) do
     cond do
       adapter_has_propose? and custom_proposer? ->
-        raise ArgumentError,
-              "Cannot provide both adapter.propose_new_texts and :custom_candidate_proposer. Please use only one custom proposal method."
+        "Cannot provide both adapter.propose_new_texts and :custom_candidate_proposer. Please use only one custom proposal method."
 
       adapter_has_propose? and template_present? ->
-        raise ArgumentError,
-              "adapter.propose_new_texts is present, so :proposal_template/:reflection_prompt_template would be ignored. Set the template option to nil."
+        "adapter.propose_new_texts is present, so :proposal_template/:reflection_prompt_template would be ignored. Set the template option to nil."
 
       not adapter_has_propose? and not custom_proposer? and not reflection_lm? ->
-        raise ArgumentError,
-              "reflection_llm was not provided, adapter does not provide propose_new_texts, and custom_candidate_proposer was not provided."
+        "reflection_llm was not provided, adapter does not provide propose_new_texts, and custom_candidate_proposer was not provided."
 
       true ->
-        :ok
+        nil
     end
+  end
+
+  defp custom_candidate_proposer?(opts) do
+    not is_nil(Keyword.get(opts, :custom_candidate_proposer))
+  end
+
+  defp reflection_lm?(opts) do
+    not is_nil(Keyword.get(opts, :reflection_llm, Keyword.get(opts, :reflection_lm)))
+  end
+
+  defp proposal_template_present?(opts) do
+    Keyword.has_key?(opts, :proposal_template) or
+      Keyword.has_key?(opts, :reflection_prompt_template)
   end
 
   defp fetch_required!(opts, key) do

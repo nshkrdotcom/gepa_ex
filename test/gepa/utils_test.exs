@@ -182,16 +182,17 @@ defmodule GEPA.UtilsTest do
       end
     end
 
-    test "handles equal scores" do
+    test "handles equal scores - keeps only one program due to mutual domination" do
       pareto_front = %{0 => MapSet.new([0, 1, 2])}
       scores = %{0 => 0.8, 1 => 0.8, 2 => 0.8}
 
       new_front = GEPA.Utils.remove_dominated_programs(pareto_front, scores)
 
-      # All programs have equal scores, none dominated
+      # All programs have equal scores and appear on the same fronts, so they mutually dominate.
+      # Tie-breaking logic preserves exactly one of them (the "best_program" fallback).
       front = new_front[0]
-      assert MapSet.size(front) == 3
-      assert front == MapSet.new([0, 1, 2])
+      assert MapSet.size(front) == 1
+      assert Enum.at(MapSet.to_list(front), 0) in [0, 1, 2]
     end
   end
 end

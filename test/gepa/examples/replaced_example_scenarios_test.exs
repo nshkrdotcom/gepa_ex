@@ -75,6 +75,7 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
           trainset: [%{input: "What is 2+2?", answer: "4"}],
           valset: [%{input: "What is 2+2?", answer: "4"}],
           adapter: adapter,
+          reflection_llm: llm,
           max_metric_calls: 3
         )
 
@@ -99,6 +100,7 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
           trainset: [%{input: "Capital of France?", answer: "Paris"}],
           valset: [%{input: "Capital of France?", answer: "Paris"}],
           adapter: adapter,
+          reflection_llm: llm,
           run_dir: run_dir,
           max_metric_calls: 3
         )
@@ -123,6 +125,7 @@ defmodule GEPA.Examples.ReplacedExampleScenariosTest do
           trainset: [%{text: "excellent service", sentiment: "positive"}],
           valset: [%{text: "bad service", sentiment: "negative"}],
           adapter: adapter,
+          reflection_llm: llm,
           max_metric_calls: 3
         )
 

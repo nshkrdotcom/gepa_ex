@@ -50,45 +50,53 @@ defmodule GEPA.Utils.Pareto do
   def remove_dominated_programs(fronts, scores) do
     all_programs = get_all_programs(fronts)
     sorted_programs = Enum.sort_by(all_programs, &Map.get(scores, &1, 0.0))
-    dominated = do_eliminate(fronts, sorted_programs, MapSet.new())
+    dominated = do_eliminate(fronts, sorted_programs, [], scores)
     dominated_set = MapSet.new(dominated)
 
     Map.new(fronts, fn {id, front} ->
-      new_front =
-        if is_struct(front, MapSet) do
-          pruned = MapSet.difference(front, dominated_set)
-
-          if MapSet.size(pruned) == 0 and MapSet.size(front) > 0 do
-            [best_program] =
-              front
-              |> MapSet.to_list()
-              |> Enum.sort_by(&{-Map.get(scores, &1, 0.0), &1})
-              |> Enum.take(1)
-
-            MapSet.new([best_program])
-          else
-            pruned
-          end
-        else
-          front
-        end
-
-      {id, new_front}
+      {id, prune_front(front, dominated_set, scores)}
     end)
   end
 
-  defp do_eliminate(fronts, programs, dominated) do
-    active_programs = Enum.reject(programs, &MapSet.member?(dominated, &1))
+  defp prune_front(front, dominated_set, scores) do
+    if is_struct(front, MapSet) do
+      pruned = MapSet.difference(front, dominated_set)
 
-    case find_next_dominated(fronts, active_programs) do
-      {:ok, program} -> do_eliminate(fronts, programs, MapSet.put(dominated, program))
-      :none -> MapSet.to_list(dominated)
+      if MapSet.size(pruned) == 0 and MapSet.size(front) > 0 do
+        [best_program] =
+          front
+          |> MapSet.to_list()
+          |> Enum.sort_by(&{-Map.get(scores, &1, 0.0), &1})
+          |> Enum.take(1)
+
+        MapSet.new([best_program])
+      else
+        pruned
+      end
+    else
+      front
     end
   end
 
-  defp find_next_dominated(_fronts, []), do: :none
+  @spec do_eliminate(
+          Types.pareto_fronts(),
+          [Types.program_idx()],
+          [Types.program_idx()],
+          %{Types.program_idx() => float()}
+        ) ::
+          [Types.program_idx()]
+  defp do_eliminate(fronts, programs, dominated, scores) do
+    active_programs = Enum.reject(programs, &(&1 in dominated))
 
-  defp find_next_dominated(fronts, active_programs) do
+    case find_next_dominated(fronts, active_programs, scores) do
+      {:ok, program} -> do_eliminate(fronts, programs, [program | dominated], scores)
+      :none -> dominated
+    end
+  end
+
+  defp find_next_dominated(_fronts, [], _scores), do: :none
+
+  defp find_next_dominated(fronts, active_programs, _scores) do
     Enum.find_value(active_programs, :none, fn program ->
       others = active_programs -- [program]
 
@@ -111,11 +119,7 @@ defmodule GEPA.Utils.Pareto do
 
     frequencies =
       Enum.reduce(cleaned_fronts, %{}, fn {_id, front}, acc ->
-        if is_struct(front, MapSet) do
-          Enum.reduce(front, acc, &Map.update(&2, &1, 1, fn count -> count + 1 end))
-        else
-          acc
-        end
+        calculate_frequencies(front, acc)
       end)
 
     if map_size(frequencies) == 0 do
@@ -131,10 +135,18 @@ defmodule GEPA.Utils.Pareto do
         |> Enum.sort_by(fn {prog, _count} -> prog end)
         |> Enum.flat_map(fn {prog, count} -> List.duplicate(prog, count) end)
 
-      {idx, new_rand} = :rand.uniform_s(length(sampling_list), rand_state)
-      {Enum.at(sampling_list, idx - 1), new_rand}
+      {idx, new_state} = :rand.uniform_s(length(sampling_list), rand_state)
+      {Enum.at(sampling_list, idx - 1), new_state}
     end
   end
+
+  defp calculate_frequencies(%MapSet{} = front, acc) do
+    Enum.reduce(front, acc, fn item, inner_acc ->
+      Map.update(inner_acc, item, 1, &(&1 + 1))
+    end)
+  end
+
+  defp calculate_frequencies(_, acc), do: acc
 
   @spec find_dominator_programs(Types.pareto_fronts(), %{Types.program_idx() => float()}) ::
           [Types.program_idx()]
@@ -150,12 +162,17 @@ defmodule GEPA.Utils.Pareto do
     fronts
     |> Map.values()
     |> Enum.reduce(MapSet.new(), fn
-      %MapSet{} = front, acc -> MapSet.union(acc, front)
-      _front, acc -> acc
+      front, acc ->
+        if is_struct(front, MapSet) do
+          MapSet.union(acc, front)
+        else
+          acc
+        end
     end)
     |> MapSet.to_list()
   end
 
-  defp mapset_member?(%MapSet{} = front, program), do: MapSet.member?(front, program)
-  defp mapset_member?(_front, _program), do: false
+  defp mapset_member?(front, program) do
+    if is_struct(front, MapSet), do: MapSet.member?(front, program), else: false
+  end
 end

@@ -6,10 +6,11 @@ defmodule GEPA.Proposer.MergeUtils do
   @doc "Return all ancestors of `program`, excluding the program itself."
   @spec get_ancestors(non_neg_integer(), map() | list()) :: [non_neg_integer()]
   def get_ancestors(program, parent_list) do
-    do_get_ancestors(program, parent_list, MapSet.new())
-    |> MapSet.to_list()
+    do_get_ancestors(program, parent_list, [])
   end
 
+  @spec do_get_ancestors(non_neg_integer(), map() | list(), [non_neg_integer()]) ::
+          [non_neg_integer()]
   defp do_get_ancestors(program, parent_list, found) do
     parents = parents_for(parent_list, program)
 
@@ -18,10 +19,10 @@ defmodule GEPA.Proposer.MergeUtils do
         acc
 
       parent, acc ->
-        if MapSet.member?(acc, parent) do
+        if parent in acc do
           acc
         else
-          do_get_ancestors(parent, parent_list, MapSet.put(acc, parent))
+          do_get_ancestors(parent, parent_list, [parent | acc])
         end
     end)
   end
@@ -110,23 +111,23 @@ defmodule GEPA.Proposer.MergeUtils do
       ancestors1 = get_ancestors(id1, parent_list)
       ancestors2 = get_ancestors(id2, parent_list)
 
-      cond do
-        id1 in ancestors2 or id2 in ancestors1 ->
-          nil
-
-        true ->
-          common =
-            MapSet.intersection(MapSet.new(ancestors1), MapSet.new(ancestors2))
-            |> MapSet.to_list()
-
-          filtered = maybe_filter_common_ancestors(common, id1, id2, scores, opts)
-
-          case select_ancestor(filtered, scores) do
-            nil -> nil
-            ancestor -> {id1, id2, ancestor}
-          end
+      if id1 not in ancestors2 and id2 not in ancestors1 do
+        find_valid_triplet(id1, id2, ancestors1, ancestors2, scores, opts)
       end
     end)
+  end
+
+  defp find_valid_triplet(id1, id2, ancestors1, ancestors2, scores, opts) do
+    common =
+      MapSet.intersection(MapSet.new(ancestors1), MapSet.new(ancestors2))
+      |> MapSet.to_list()
+
+    filtered = maybe_filter_common_ancestors(common, id1, id2, scores, opts)
+
+    case select_ancestor(filtered, scores) do
+      nil -> nil
+      ancestor -> {id1, id2, ancestor}
+    end
   end
 
   @doc "Canonical tuple for recording a merge triplet irrespective of pair ordering."

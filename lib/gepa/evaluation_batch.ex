@@ -35,46 +35,79 @@ defmodule GEPA.EvaluationBatch do
 
   def validate(%__MODULE__{outputs: outputs, scores: scores} = batch, opts)
       when is_list(outputs) and is_list(scores) do
-    expected_count = Keyword.get(opts, :expected_count)
-    capture_traces = Keyword.get(opts, :capture_traces, false)
     output_count = length(outputs)
 
-    cond do
-      not is_nil(expected_count) and output_count != expected_count ->
-        {:error, {:invalid_evaluation_batch_length, :outputs, output_count, expected_count}}
+    with :ok <- validate_expected_count(output_count, opts),
+         :ok <- validate_scores(scores, output_count),
+         :ok <- validate_trajectories(batch.trajectories, output_count, opts),
+         :ok <- validate_objective_scores(batch.objective_scores, output_count) do
+      validate_metric_calls(batch.num_metric_calls)
+    end
+  end
 
-      output_count != length(scores) ->
-        {:error, {:invalid_evaluation_batch_length, :scores, length(scores), output_count}}
+  def validate(%__MODULE__{}, _opts), do: {:error, :outputs_and_scores_must_be_lists}
+  def validate(_other, _opts), do: {:error, :not_an_evaluation_batch}
+
+  defp validate_expected_count(count, opts) do
+    expected = Keyword.get(opts, :expected_count)
+
+    if is_nil(expected) or count == expected do
+      :ok
+    else
+      {:error, {:invalid_evaluation_batch_length, :outputs, count, expected}}
+    end
+  end
+
+  defp validate_scores(scores, count) do
+    cond do
+      length(scores) != count ->
+        {:error, {:invalid_evaluation_batch_length, :scores, length(scores), count}}
 
       not Enum.all?(scores, &is_number/1) ->
         {:error, :scores_must_be_numeric}
-
-      not optional_list_length_matches?(batch.trajectories, output_count) ->
-        {:error,
-         {:invalid_evaluation_batch_length, :trajectories, optional_length(batch.trajectories),
-          output_count}}
-
-      capture_traces and is_nil(batch.trajectories) ->
-        {:error, :trajectories_required_when_capture_traces}
-
-      not optional_list_length_matches?(batch.objective_scores, output_count) ->
-        {:error,
-         {:invalid_evaluation_batch_length, :objective_scores,
-          optional_length(batch.objective_scores), output_count}}
-
-      has_invalid_objective_scores?(batch.objective_scores) ->
-        {:error, :objective_scores_must_be_maps_of_numeric_values}
-
-      not valid_metric_calls?(batch.num_metric_calls) ->
-        {:error, :num_metric_calls_must_be_non_negative_integer}
 
       true ->
         :ok
     end
   end
 
-  def validate(%__MODULE__{}, _opts), do: {:error, :outputs_and_scores_must_be_lists}
-  def validate(_other, _opts), do: {:error, :not_an_evaluation_batch}
+  defp validate_trajectories(trajectories, count, opts) do
+    capture_traces = Keyword.get(opts, :capture_traces, false)
+
+    cond do
+      not optional_list_length_matches?(trajectories, count) ->
+        {:error,
+         {:invalid_evaluation_batch_length, :trajectories, optional_length(trajectories), count}}
+
+      capture_traces and is_nil(trajectories) ->
+        {:error, :trajectories_required_when_capture_traces}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_objective_scores(obj_scores, count) do
+    cond do
+      not optional_list_length_matches?(obj_scores, count) ->
+        {:error,
+         {:invalid_evaluation_batch_length, :objective_scores, optional_length(obj_scores), count}}
+
+      has_invalid_objective_scores?(obj_scores) ->
+        {:error, :objective_scores_must_be_maps_of_numeric_values}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_metric_calls(num_metric_calls) do
+    if valid_metric_calls?(num_metric_calls) do
+      :ok
+    else
+      {:error, :num_metric_calls_must_be_non_negative_integer}
+    end
+  end
 
   @doc "Raise unless a batch is valid; otherwise return the batch unchanged."
   @spec validate!(t(), keyword()) :: t()

@@ -90,53 +90,47 @@ defmodule GEPA.Proposer.Merge do
       |> MapSet.to_list()
       |> Enum.sort()
 
-    cond do
-      num_subsample_ids <= 0 ->
-        []
+    if num_subsample_ids > 0 and common_ids != [] do
+      buckets = partition_common_ids(common_ids, scores1, scores2)
+      n_each = max(1, div(num_subsample_ids + 2, 3))
 
-      common_ids == [] ->
-        []
+      selected =
+        buckets
+        |> Enum.with_index()
+        |> Enum.reduce([], fn {bucket, bucket_idx}, acc ->
+          take_from_bucket(bucket, bucket_idx, acc, num_subsample_ids, n_each, proposer.seed)
+        end)
 
-      true ->
-        buckets = partition_common_ids(common_ids, scores1, scores2)
-        n_each = max(1, div(num_subsample_ids + 2, 3))
+      remaining = num_subsample_ids - length(selected)
+      fill = calculate_fill(common_ids, selected, remaining, proposer.seed)
 
-        selected =
-          buckets
-          |> Enum.with_index()
-          |> Enum.reduce([], fn {bucket, bucket_idx}, acc ->
-            remaining = num_subsample_ids - length(acc)
+      Enum.take(selected ++ fill, num_subsample_ids)
+    else
+      []
+    end
+  end
 
-            if remaining <= 0 do
-              acc
-            else
-              available = Enum.reject(bucket, &(&1 in acc))
-              take = min(min(length(available), n_each), remaining)
-              acc ++ deterministic_take(available, take, {proposer.seed, bucket_idx, :bucket})
-            end
-          end)
+  defp take_from_bucket(bucket, bucket_idx, acc, num_total, n_each, seed) do
+    remaining = num_total - length(acc)
 
-        remaining = num_subsample_ids - length(selected)
+    if remaining <= 0 do
+      acc
+    else
+      available = Enum.reject(bucket, &(&1 in acc))
+      take = min(min(length(available), n_each), remaining)
+      acc ++ deterministic_take(available, take, {seed, bucket_idx, :bucket})
+    end
+  end
 
-        fill =
-          cond do
-            remaining <= 0 ->
-              []
+  defp calculate_fill(_common_ids, _selected, remaining, _seed) when remaining <= 0, do: []
 
-            length(Enum.reject(common_ids, &(&1 in selected))) >= remaining ->
-              common_ids
-              |> Enum.reject(&(&1 in selected))
-              |> deterministic_take(remaining, {proposer.seed, length(selected), :fill})
+  defp calculate_fill(common_ids, selected, remaining, seed) do
+    available = Enum.reject(common_ids, &(&1 in selected))
 
-            true ->
-              sample_with_replacement(
-                common_ids,
-                remaining,
-                {proposer.seed, length(selected), :repeat}
-              )
-          end
-
-        Enum.take(selected ++ fill, num_subsample_ids)
+    if length(available) >= remaining do
+      deterministic_take(available, remaining, {seed, length(selected), :fill})
+    else
+      sample_with_replacement(common_ids, remaining, {seed, length(selected), :repeat})
     end
   end
 
@@ -311,26 +305,48 @@ defmodule GEPA.Proposer.Merge do
       id2_val = Map.get(id2_candidate, component_name)
 
       {selected_value, selected_from} =
-        cond do
-          anc_val == id1_val and id1_val != id2_val ->
-            {id2_val, {component_name, id2}}
-
-          anc_val == id2_val and id1_val != id2_val ->
-            {id1_val, {component_name, id1}}
-
-          anc_val != id1_val and anc_val != id2_val and id1_val != id2_val ->
-            if id1_score > id2_score do
-              {id1_val, {component_name, id1}}
-            else
-              {id2_val, {component_name, id2}}
-            end
-
-          true ->
-            {id1_val, {component_name, :unchanged}}
-        end
+        select_component_value(
+          component_name,
+          anc_val,
+          id1_val,
+          id2_val,
+          id1,
+          id2,
+          id1_score,
+          id2_score
+        )
 
       {Map.put(merged, component_name, selected_value), [selected_from | descriptor]}
     end)
+  end
+
+  defp select_component_value(name, anc, v1, v2, id1, id2, s1, s2) do
+    cond do
+      only_second_changed?(anc, v1, v2) ->
+        {v2, {name, id2}}
+
+      only_first_changed?(anc, v1, v2) ->
+        {v1, {name, id1}}
+
+      both_changed_differently?(anc, v1, v2) ->
+        select_higher_scoring_value(name, v1, v2, id1, id2, s1, s2)
+
+      true ->
+        {v1, {name, :unchanged}}
+    end
+  end
+
+  defp only_second_changed?(ancestor_value, value1, value2),
+    do: ancestor_value == value1 and value1 != value2
+
+  defp only_first_changed?(ancestor_value, value1, value2),
+    do: ancestor_value == value2 and value1 != value2
+
+  defp both_changed_differently?(ancestor_value, value1, value2),
+    do: ancestor_value != value1 and ancestor_value != value2 and value1 != value2
+
+  defp select_higher_scoring_value(name, value1, value2, id1, id2, score1, score2) do
+    if score1 > score2, do: {value1, {name, id1}}, else: {value2, {name, id2}}
   end
 
   defp descriptor_already_used?(descriptor, {_used_triplets, used_descriptors}) do

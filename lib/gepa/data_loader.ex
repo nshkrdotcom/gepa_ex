@@ -1,3 +1,38 @@
+defmodule GEPA.DataLoader.List do
+  @moduledoc "In-memory loader using zero-based integer IDs."
+
+  @behaviour GEPA.DataLoader
+
+  defstruct [:items]
+
+  @type t :: %__MODULE__{items: [term()]}
+
+  @spec new([term()]) :: t()
+  def new(items) when is_list(items), do: %__MODULE__{items: items}
+
+  @doc "Append items while preserving existing IDs."
+  @spec add_items(t(), [term()]) :: t()
+  def add_items(%__MODULE__{items: items} = loader, new_items) when is_list(new_items) do
+    %{loader | items: items ++ new_items}
+  end
+
+  @impl true
+  def all_ids(%__MODULE__{items: items}) do
+    case length(items) do
+      0 -> []
+      n -> Enum.to_list(0..(n - 1))
+    end
+  end
+
+  @impl true
+  def fetch(%__MODULE__{items: items}, ids) when is_list(ids) do
+    Enum.map(ids, &Enum.fetch!(items, &1))
+  end
+
+  @impl true
+  def size(%__MODULE__{items: items}), do: length(items)
+end
+
 defmodule GEPA.DataLoader do
   @moduledoc """
   Protocol-style data access abstraction.
@@ -45,39 +80,4 @@ defmodule GEPA.DataLoader do
   @spec size(t()) :: non_neg_integer()
   def size(items) when is_list(items), do: length(items)
   def size(%module{} = loader), do: module.size(loader)
-end
-
-defmodule GEPA.DataLoader.List do
-  @moduledoc "In-memory loader using zero-based integer IDs."
-
-  @behaviour GEPA.DataLoader
-
-  defstruct [:items]
-
-  @type t :: %__MODULE__{items: [term()]}
-
-  @spec new([term()]) :: t()
-  def new(items) when is_list(items), do: %__MODULE__{items: items}
-
-  @doc "Append items while preserving existing IDs."
-  @spec add_items(t(), [term()]) :: t()
-  def add_items(%__MODULE__{items: items} = loader, new_items) when is_list(new_items) do
-    %{loader | items: items ++ new_items}
-  end
-
-  @impl true
-  def all_ids(%__MODULE__{items: items}) do
-    case length(items) do
-      0 -> []
-      n -> Enum.to_list(0..(n - 1))
-    end
-  end
-
-  @impl true
-  def fetch(%__MODULE__{items: items}, ids) when is_list(ids) do
-    Enum.map(ids, &Enum.fetch!(items, &1))
-  end
-
-  @impl true
-  def size(%__MODULE__{items: items}), do: length(items)
 end
