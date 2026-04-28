@@ -12,6 +12,8 @@ defmodule GEPA.Engine do
 
   require Logger
 
+  alias GEPA.Adapter.Dispatch
+
   alias GEPA.{
     Callbacks,
     CandidateProposal,
@@ -563,7 +565,7 @@ defmodule GEPA.Engine do
     batch = DataLoader.fetch(loader, ids)
 
     with {:ok, eval_batch} <-
-           adapter.__struct__.evaluate(adapter, batch, candidate, capture_traces) do
+           Dispatch.evaluate(adapter, batch, candidate, capture_traces) do
       {:ok, eval_batch, nil}
     end
   end
@@ -584,7 +586,7 @@ defmodule GEPA.Engine do
       batch = DataLoader.fetch(loader, uncached_ids)
 
       with {:ok, uncached_eval_batch} <-
-             adapter.__struct__.evaluate(adapter, batch, candidate, capture_traces) do
+             Dispatch.evaluate(adapter, batch, candidate, capture_traces) do
         cache =
           EvaluationCache.put_batch(
             cache,
@@ -663,50 +665,19 @@ defmodule GEPA.Engine do
     )
   end
 
-  defp adapter_state_from_adapter(adapter) do
-    module = adapter_module(adapter)
-
-    adapter_state_from_callback(module, adapter)
-  end
-
-  defp adapter_state_from_callback(module, adapter) when is_atom(module) do
-    case module.get_adapter_state(adapter) do
-      {:ok, state} when is_map(state) -> state
-      state when is_map(state) -> state
-      _ -> %{}
-    end
-  rescue
-    UndefinedFunctionError -> %{}
-  end
+  defp adapter_state_from_adapter(adapter), do: Dispatch.get_adapter_state(adapter)
 
   defp restore_adapter_state(adapter, state) do
-    module = adapter_module(adapter)
-
-    case {state, module} do
-      {state, module}
-      when is_map(state) and map_size(state) > 0 and is_atom(module) ->
-        restore_adapter_state_from_callback(module, adapter, state)
-
-      _ ->
-        :ok
+    if is_map(state) and map_size(state) > 0 do
+      Dispatch.set_adapter_state(adapter, state)
     end
 
     :ok
   end
 
-  defp restore_adapter_state_from_callback(module, adapter, state) do
-    module.set_adapter_state(adapter, state)
-  rescue
-    UndefinedFunctionError -> :ok
-  end
-
   defp sync_adapter_state_to_state(state, adapter) do
     %{state | adapter_state: adapter_state_from_adapter(adapter)}
   end
-
-  defp adapter_module(%module{}), do: module
-  defp adapter_module(module) when is_atom(module), do: module
-  defp adapter_module(_adapter), do: nil
 
   defp save_state(state, run_dir) do
     path = Path.join(run_dir, "gepa_state.etf")

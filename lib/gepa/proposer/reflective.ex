@@ -28,6 +28,7 @@ defmodule GEPA.Proposer.Reflective do
   placeholder mutation path.
   """
 
+  alias GEPA.Adapter.Dispatch
   alias GEPA.CandidateProposal.SubsampleEvaluation
   alias GEPA.Proposer.InstructionProposal
   alias GEPA.Strategies.BatchSampler.EpochShuffled
@@ -137,7 +138,7 @@ defmodule GEPA.Proposer.Reflective do
     adapter = proposer.adapter
     capture_traces = true
 
-    case adapter.__struct__.evaluate(adapter, minibatch, candidate, capture_traces) do
+    case Dispatch.evaluate(adapter, minibatch, candidate, capture_traces) do
       {:ok, eval_curr} ->
         current_metric_calls = evaluation_metric_calls(eval_curr, trainset_ids)
 
@@ -176,7 +177,7 @@ defmodule GEPA.Proposer.Reflective do
 
             case generate_improved_candidate(proposer, candidate, eval_curr, components) do
               {:ok, new_candidate, proposal_metadata} ->
-                case adapter.__struct__.evaluate(adapter, minibatch, new_candidate, false) do
+                case Dispatch.evaluate(adapter, minibatch, new_candidate, false) do
                   {:ok, eval_new} ->
                     num_metric_calls =
                       current_metric_calls + evaluation_metric_calls(eval_new, trainset_ids)
@@ -314,7 +315,7 @@ defmodule GEPA.Proposer.Reflective do
   defp generate_improved_candidate(proposer, candidate, eval_batch, components) do
     adapter = proposer.adapter
 
-    case adapter.__struct__.make_reflective_dataset(adapter, candidate, eval_batch, components) do
+    case Dispatch.make_reflective_dataset(adapter, candidate, eval_batch, components) do
       {:ok, reflective_dataset} ->
         GEPA.Callbacks.notify(proposer.callbacks, :reflective_dataset_built, %{
           components: components,
@@ -340,39 +341,34 @@ defmodule GEPA.Proposer.Reflective do
   end
 
   defp propose_new_texts(proposer, candidate, reflective_dataset, components) do
-    adapter = proposer.adapter
-    module = adapter.__struct__
     empty_metadata = {%{}, %{}}
 
-    cond do
-      function_exported?(module, :propose_new_texts, 4) ->
-        normalize_new_texts(
-          module.propose_new_texts(adapter, candidate, reflective_dataset, components),
-          empty_metadata
-        )
+    case Dispatch.propose_new_texts(proposer.adapter, candidate, reflective_dataset, components) do
+      {:ok, _new_texts, _prompts, _raw_outputs} = ok ->
+        ok
 
-      function_exported?(module, :propose_new_texts, 3) ->
-        normalize_new_texts(
-          module.propose_new_texts(candidate, reflective_dataset, components),
-          empty_metadata
-        )
+      {:error, _reason} = error ->
+        error
 
-      is_function(proposer.custom_candidate_proposer, 3) ->
-        normalize_new_texts(
-          proposer.custom_candidate_proposer.(candidate, reflective_dataset, components),
-          empty_metadata
-        )
+      :missing ->
+        cond do
+          is_function(proposer.custom_candidate_proposer, 3) ->
+            normalize_new_texts(
+              proposer.custom_candidate_proposer.(candidate, reflective_dataset, components),
+              empty_metadata
+            )
 
-      proposer.instruction_proposal != nil ->
-        InstructionProposal.propose_batch_with_metadata(
-          proposer.instruction_proposal,
-          candidate,
-          reflective_dataset,
-          components
-        )
+          proposer.instruction_proposal != nil ->
+            InstructionProposal.propose_batch_with_metadata(
+              proposer.instruction_proposal,
+              candidate,
+              reflective_dataset,
+              components
+            )
 
-      true ->
-        {:error, :missing_proposal_source}
+          true ->
+            {:error, :missing_proposal_source}
+        end
     end
   end
 

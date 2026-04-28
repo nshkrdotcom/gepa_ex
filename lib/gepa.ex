@@ -35,6 +35,7 @@ defmodule GEPA do
   rather than using a simple placeholder improvement.
   """
 
+  alias GEPA.Adapter.Dispatch
   alias GEPA.Adapters.Default
   alias GEPA.EvaluationCache
   alias GEPA.Proposer.InstructionProposal
@@ -382,7 +383,7 @@ defmodule GEPA do
       Merge.new(
         valset: val_loader,
         evaluator: fn batch, candidate ->
-          case adapter.__struct__.evaluate(adapter, batch, candidate, false) do
+          case Dispatch.evaluate(adapter, batch, candidate, false) do
             {:ok, eval_batch} -> {eval_batch.outputs, eval_batch.scores}
             {:error, reason} -> raise "merge evaluation failed: #{inspect(reason)}"
           end
@@ -424,16 +425,19 @@ defmodule GEPA do
   end
 
   defp build_instruction_proposal(opts) do
-    case opts[:reflection_llm] do
+    case Keyword.get(opts, :reflection_llm, Keyword.get(opts, :reflection_lm)) do
       nil ->
         nil
 
       llm ->
         proposal_opts = [llm: llm]
 
+        template =
+          Keyword.get(opts, :proposal_template, Keyword.get(opts, :reflection_prompt_template))
+
         proposal_opts =
-          if opts[:proposal_template] do
-            Keyword.put(proposal_opts, :template, opts[:proposal_template])
+          if template do
+            Keyword.put(proposal_opts, :template, template)
           else
             proposal_opts
           end

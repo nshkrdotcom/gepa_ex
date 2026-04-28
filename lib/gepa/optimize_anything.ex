@@ -907,6 +907,7 @@ defmodule GEPA.OptimizeAnything do
   """
 
   alias GEPA.LLM.Mock, as: LLMMock
+  alias GEPA.Seed
   alias GEPA.OptimizeAnything.{Adapter, Config, LogContext}
 
   @str_candidate_key "current_candidate"
@@ -927,6 +928,25 @@ defmodule GEPA.OptimizeAnything do
   3. Make improvements that move toward the objective
   4. Return the complete improved candidate
   """
+
+  @doc "Return the internal key used to wrap string candidates."
+  @spec str_candidate_key() :: String.t()
+  def str_candidate_key, do: @str_candidate_key
+
+  @doc "Return the default refiner prompt template."
+  @spec default_refiner_prompt() :: String.t()
+  def default_refiner_prompt, do: @default_refiner_prompt
+
+  @doc "Build the seed-generation prompt used when `seed_candidate` is nil."
+  @spec build_seed_generation_prompt(keyword() | map()) :: String.t()
+  def build_seed_generation_prompt(opts), do: Seed.build_prompt(opts)
+
+  @doc "Generate an initial seed candidate using an LM."
+  @spec generate_seed_candidate(term(), keyword() | map()) :: {:ok, map()} | {:error, term()}
+  def generate_seed_candidate(lm, opts) do
+    opts = opts |> Map.new() |> Map.put_new(:candidate_key, @str_candidate_key)
+    Seed.generate(lm, opts)
+  end
 
   @doc "Append a diagnostic message to the process-local optimize-anything log."
   @spec log(term()) :: :ok
@@ -1180,10 +1200,15 @@ defmodule GEPA.OptimizeAnything do
         {:error, :reflection_lm_required_for_seedless_mode}
 
       lm ->
-        prompt = seed_prompt(config)
+        opts = [
+          objective: config.objective,
+          background: config.background,
+          dataset: normalize_dataset(config.dataset),
+          candidate_key: @str_candidate_key
+        ]
 
-        with {:ok, text} <- GEPA.LLM.complete(lm, prompt) do
-          {:ok, %{@str_candidate_key => extract_fenced_text(text)}, true}
+        with {:ok, candidate} <- Seed.generate(lm, opts) do
+          {:ok, candidate, true}
         end
     end
   end
@@ -1198,38 +1223,6 @@ defmodule GEPA.OptimizeAnything do
 
   defp seed_candidate(%Config{seed_candidate: seed}) do
     {:ok, %{"candidate" => inspect(seed)}, true}
-  end
-
-  defp extract_fenced_text(text) when is_binary(text) do
-    trimmed = String.trim(text)
-    start = :binary.match(trimmed, "```")
-    finish = trimmed |> :binary.matches("```") |> List.last()
-
-    case {start, finish} do
-      {{s, 3}, {e, 3}} when s < e ->
-        trimmed
-        |> binary_part(s + 3, e - s - 3)
-        |> String.replace(~r/^\S*\n/, "", global: false)
-        |> String.trim()
-
-      _ ->
-        trimmed
-    end
-  end
-
-  defp seed_prompt(config) do
-    """
-    Generate an initial candidate for this optimization task.
-
-    Objective:
-    #{config.objective}
-
-    Background:
-    #{config.background}
-
-    Dataset examples:
-    #{inspect(Enum.take(normalize_dataset(config.dataset), 5))}
-    """
   end
 
   defp normalize_dataset(nil), do: [%{}]
