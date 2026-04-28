@@ -32,7 +32,7 @@ defmodule GEPA.OptimizeAnythingTest do
       %{score: 0.7, output: :ok, scores: %{"accuracy" => 0.7}}
     end
 
-    result = EvaluatorWrapper.evaluate(evaluator, "seed", %{id: 1})
+    result = EvaluatorWrapper.evaluate(evaluator, "seed", %{id: 1}, capture_stdio: true)
 
     assert result.score == 0.7
     assert result.output == :ok

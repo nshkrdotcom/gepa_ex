@@ -93,6 +93,21 @@ defmodule GEPA.OptimizeAnything.OptimizationState do
   @type t :: %__MODULE__{best_example_evals: [map()]}
 end
 
+defmodule GEPA.OptimizeAnything.LogContext.Context do
+  @moduledoc """
+  Propagatable optimize-anything evaluator log context.
+
+  Use `GEPA.OptimizeAnything.get_log_context/0` inside an evaluator and pass
+  the returned context to child processes with
+  `GEPA.OptimizeAnything.set_log_context/1` when those processes should append
+  diagnostic log entries to the parent evaluator call.
+  """
+
+  defstruct [:agent]
+
+  @type t :: %__MODULE__{agent: pid()}
+end
+
 defmodule GEPA.OptimizeAnything.TrackingConfig do
   @moduledoc "Tracking options for `GEPA.OptimizeAnything`."
 
@@ -191,31 +206,80 @@ defmodule GEPA.OptimizeAnything.LogContext do
   Process-local diagnostic log context used by optimize-anything evaluators.
   """
 
+  alias GEPA.OptimizeAnything.LogContext.Context
+
+  require Logger
+
   @key {__MODULE__, :context}
 
-  @spec get() :: [String.t()]
-  def get, do: Process.get(@key, [])
+  @spec get() :: Context.t()
+  def get do
+    case active_context() do
+      %Context{} = context -> context
+      nil -> raise RuntimeError, "No active log context"
+    end
+  end
 
-  @spec set([String.t()]) :: :ok
-  def set(entries) when is_list(entries) do
-    Process.put(@key, entries)
+  @spec set(Context.t() | nil) :: :ok
+  def set(%Context{} = context) do
+    Process.put(@key, context)
+    :ok
+  end
+
+  def set(nil) do
+    Process.delete(@key)
     :ok
   end
 
   @spec log(term()) :: :ok
-  def log(message) do
-    Process.put(@key, get() ++ [to_string(message)])
+  def log(message), do: log([message], [])
+
+  @spec log(term() | [term()], keyword()) :: :ok
+  def log(parts, opts) do
+    text = format_message(parts, opts)
+
+    case active_context() do
+      %Context{agent: agent} ->
+        Agent.update(agent, &(&1 ++ [text]))
+
+      nil ->
+        Logger.warning(
+          "GEPA.OptimizeAnything.log/1 called outside of an evaluator; discarding output"
+        )
+    end
+
     :ok
   end
 
-  @spec capture((-> term())) :: {term(), [String.t()], String.t()}
-  def capture(fun) when is_function(fun, 0) do
-    previous_context = get()
-    set([])
-    {result, stdout} = capture_io(fun)
-    logs = get()
-    set(previous_context)
-    {result, logs, stdout}
+  @spec entries(Context.t()) :: [String.t()]
+  def entries(%Context{agent: agent}) do
+    if Process.alive?(agent), do: Agent.get(agent, & &1), else: []
+  end
+
+  @spec capture((-> term()), keyword()) :: {term(), [String.t()], String.t()}
+  def capture(fun, opts \\ []) when is_function(fun, 0) do
+    previous_context = active_context()
+    {:ok, agent} = Agent.start_link(fn -> [] end)
+    context = %Context{agent: agent}
+
+    Process.put(@key, context)
+
+    try do
+      {result, stdout} =
+        if Keyword.get(opts, :capture_stdio, false) do
+          capture_io(fun)
+        else
+          {fun.(), ""}
+        end
+
+      {result, entries(context), stdout}
+    after
+      restore_context(previous_context)
+
+      if Process.alive?(agent) do
+        Agent.stop(agent)
+      end
+    end
   end
 
   defp capture_io(fun) do
@@ -231,6 +295,26 @@ defmodule GEPA.OptimizeAnything.LogContext do
       Process.group_leader(self(), previous)
     end
   end
+
+  defp active_context do
+    case Process.get(@key) do
+      %Context{} = context -> context
+      _other -> nil
+    end
+  end
+
+  defp restore_context(%Context{} = context), do: Process.put(@key, context)
+  defp restore_context(nil), do: Process.delete(@key)
+
+  defp format_message(parts, opts) do
+    sep = Keyword.get(opts, :sep, " ")
+    ending = Keyword.get(opts, :ending, Keyword.get(opts, :end, ""))
+
+    parts
+    |> List.wrap()
+    |> Enum.map_join(sep, &to_string/1)
+    |> Kernel.<>(ending)
+  end
 end
 
 defmodule GEPA.OptimizeAnything.EvaluatorWrapper do
@@ -240,14 +324,20 @@ defmodule GEPA.OptimizeAnything.EvaluatorWrapper do
 
   alias GEPA.OptimizeAnything.LogContext
 
+  require Logger
+
   @spec evaluate(function(), term(), term(), keyword()) :: map()
   def evaluate(evaluator, candidate, example \\ nil, opts \\ []) when is_function(evaluator) do
     opt_state = Keyword.get(opts, :opt_state)
+    candidate = maybe_unwrap_candidate(candidate, Keyword.get(opts, :str_candidate_key))
 
     {result, logs, stdout} =
-      LogContext.capture(fn ->
-        call_evaluator(evaluator, candidate, example, opt_state)
-      end)
+      LogContext.capture(
+        fn ->
+          call_evaluator(evaluator, candidate, example, opt_state)
+        end,
+        capture_stdio: Keyword.get(opts, :capture_stdio, false)
+      )
 
     result
     |> normalize_result()
@@ -318,7 +408,7 @@ defmodule GEPA.OptimizeAnything.EvaluatorWrapper do
   end
 
   defp normalize_result(score) when is_number(score) do
-    %{score: score * 1.0, output: score, scores: nil, side_info: %{}, error: nil}
+    %{score: score * 1.0, output: nil, scores: nil, side_info: %{}, error: nil}
   end
 
   defp normalize_result(%{} = result) do
@@ -356,16 +446,35 @@ defmodule GEPA.OptimizeAnything.EvaluatorWrapper do
   defp put_captured_side_info(result, logs, stdout) do
     side_info =
       result.side_info
-      |> maybe_put("log", Enum.join(logs, "\n"))
-      |> maybe_put("stdout", stdout)
-      |> maybe_put("error", result.error)
+      |> put_captured("log", Enum.join(logs, "\n"))
+      |> put_captured("stdout", stdout)
+      |> put_captured("error", result.error)
 
     %{result | side_info: side_info}
   end
 
-  defp maybe_put(side_info, _key, nil), do: side_info
-  defp maybe_put(side_info, _key, ""), do: side_info
-  defp maybe_put(side_info, key, value), do: Map.put_new(side_info, key, value)
+  defp put_captured(side_info, _key, nil), do: side_info
+  defp put_captured(side_info, _key, ""), do: side_info
+
+  defp put_captured(side_info, key, value) do
+    if Map.has_key?(side_info, key) do
+      prefixed_key = "_gepa_#{key}"
+
+      Logger.warning(
+        "captured evaluator side_info key #{inspect(key)} conflicts with user side_info; " <>
+          "storing GEPA value under #{inspect(prefixed_key)}"
+      )
+
+      Map.put_new(side_info, prefixed_key, value)
+    else
+      Map.put(side_info, key, value)
+    end
+  end
+
+  defp maybe_unwrap_candidate(candidate, key) when is_binary(key) and is_map(candidate),
+    do: Map.fetch!(candidate, key)
+
+  defp maybe_unwrap_candidate(candidate, _key), do: candidate
 
   defp stringify_keys(map) do
     Map.new(map, fn {key, value} ->
@@ -425,6 +534,7 @@ defmodule GEPA.OptimizeAnything.Adapter do
     :refiner_config,
     :raise_on_exception,
     :str_candidate_key,
+    :capture_stdio,
     best_example_evals_k: 30,
     top_k: 3
   ]
@@ -445,6 +555,7 @@ defmodule GEPA.OptimizeAnything.Adapter do
       refiner_config: opts[:refiner_config],
       raise_on_exception: Keyword.get(opts, :raise_on_exception, true),
       str_candidate_key: opts[:str_candidate_key],
+      capture_stdio: Keyword.get(opts, :capture_stdio, false),
       best_example_evals_k: Keyword.get(opts, :best_example_evals_k, 30),
       top_k: Keyword.get(opts, :top_k, 3)
     }
@@ -529,7 +640,8 @@ defmodule GEPA.OptimizeAnything.Adapter do
             evaluator_candidate(adapter, candidate),
             example,
             opt_state: opt_state,
-            raise_on_exception: adapter.raise_on_exception
+            raise_on_exception: adapter.raise_on_exception,
+            capture_stdio: adapter.capture_stdio
           )
 
         entry = %{
@@ -963,16 +1075,34 @@ defmodule GEPA.OptimizeAnything do
     Seed.generate(lm, opts)
   end
 
+  @doc "Build a normalized hosted-provider LM client for optimize-anything helpers."
+  @spec make_litellm_lm(String.t(), keyword()) :: GEPA.LLM.Client.t()
+  def make_litellm_lm(model_name, opts \\ []) when is_binary(model_name) do
+    case String.split(model_name, "/", parts: 2) do
+      [provider, model] ->
+        provider
+        |> provider_atom()
+        |> GEPA.LLM.req_llm([{:model, model} | opts])
+
+      [model] ->
+        GEPA.LLM.req_llm(:openai, [{:model, model} | opts])
+    end
+  end
+
   @doc "Append a diagnostic message to the process-local optimize-anything log."
   @spec log(term()) :: :ok
   defdelegate log(message), to: LogContext
 
+  @doc "Append a formatted diagnostic message to the process-local optimize-anything log."
+  @spec log(term() | [term()], keyword()) :: :ok
+  defdelegate log(parts, opts), to: LogContext
+
   @doc "Return the process-local optimize-anything diagnostic log."
-  @spec get_log_context() :: [String.t()]
+  @spec get_log_context() :: GEPA.OptimizeAnything.LogContext.Context.t()
   defdelegate get_log_context(), to: LogContext, as: :get
 
   @doc "Replace the process-local optimize-anything diagnostic log."
-  @spec set_log_context([String.t()]) :: :ok
+  @spec set_log_context(GEPA.OptimizeAnything.LogContext.Context.t()) :: :ok
   defdelegate set_log_context(entries), to: LogContext, as: :set
 
   @doc """
@@ -1022,6 +1152,7 @@ defmodule GEPA.OptimizeAnything do
         refiner_config: config.refiner,
         raise_on_exception: config.engine.raise_on_exception,
         str_candidate_key: if(string_candidate?, do: @str_candidate_key),
+        capture_stdio: config.engine.capture_stdio,
         best_example_evals_k: config.engine.best_example_evals_k
       )
 
