@@ -40,6 +40,42 @@ defmodule GEPA.ResultTest do
   end
 
   describe "to_dict/1 and from_dict/1" do
+    test "from_dict upcasts legacy version 0 list-shaped fields" do
+      legacy_payload = %{
+        "candidates" => [%{"system_prompt" => "weight=0"}, %{"system_prompt" => "weight=1"}],
+        "parents" => [[nil], [0]],
+        "val_aggregate_scores" => [0.15, 0.35],
+        "val_subscores" => [[0.1, 0.2], [0.3, 0.4]],
+        "per_val_instance_best_candidates" => [[0], [1]],
+        "discovery_eval_counts" => [0, 2],
+        "best_outputs_valset" => [
+          [{0, %{"value" => 0.1}}],
+          [{1, %{"value" => 0.4}}]
+        ],
+        "total_metric_calls" => 5,
+        "num_full_val_evals" => 2,
+        "run_dir" => "/tmp/gepa",
+        "seed" => 42
+      }
+
+      result = Result.from_dict(legacy_payload)
+
+      assert result.val_subscores == [%{0 => 0.1, 1 => 0.2}, %{0 => 0.3, 1 => 0.4}]
+
+      assert result.per_val_instance_best_candidates == %{
+               0 => MapSet.new([0]),
+               1 => MapSet.new([1])
+             }
+
+      assert result.best_outputs_valset == %{
+               0 => [{0, %{"value" => 0.1}}],
+               1 => [{1, %{"value" => 0.4}}]
+             }
+
+      serialized = Result.to_dict(result)
+      assert serialized["validation_schema_version"] == 2
+    end
+
     test "round-trips result metadata" do
       result = %Result{
         candidates: [%{"instruction" => "seed"}, %{"instruction" => "new"}],

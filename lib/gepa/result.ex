@@ -125,17 +125,18 @@ defmodule GEPA.Result do
     %__MODULE__{
       candidates: dict_get(data, :candidates, []),
       val_aggregate_scores: dict_get(data, :val_aggregate_scores, []),
-      val_subscores: dict_get(data, :val_subscores, []),
+      val_subscores: upcast_val_subscores(dict_get(data, :val_subscores, [])),
       per_val_instance_best_candidates:
         list_values_to_mapsets(dict_get(data, :per_val_instance_best_candidates, %{})),
       parents: dict_get(data, :parents, []),
-      total_num_evals: dict_get(data, :total_num_evals, 0),
-      num_full_ds_evals: dict_get(data, :num_full_ds_evals, 0),
+      total_num_evals: dict_get(data, :total_num_evals, dict_get(data, :total_metric_calls, 0)),
+      num_full_ds_evals:
+        dict_get(data, :num_full_ds_evals, dict_get(data, :num_full_val_evals, 0)),
       i: dict_get(data, :i, 0),
       best_idx: dict_get(data, :best_idx),
       best_candidate: dict_get(data, :best_candidate),
       discovery_eval_counts: dict_get(data, :discovery_eval_counts, []),
-      best_outputs_valset: dict_get(data, :best_outputs_valset),
+      best_outputs_valset: upcast_indexed_map(dict_get(data, :best_outputs_valset)),
       val_aggregate_subscores: dict_get(data, :val_aggregate_subscores),
       per_objective_best_candidates:
         list_values_to_mapsets(dict_get(data, :per_objective_best_candidates)),
@@ -175,6 +176,30 @@ defmodule GEPA.Result do
     Map.get(data, Atom.to_string(key), Map.get(data, key, default))
   end
 
+  defp upcast_val_subscores(values) when is_list(values) do
+    Enum.map(values, fn
+      %{} = scores ->
+        scores
+
+      scores when is_list(scores) ->
+        scores
+        |> Enum.with_index()
+        |> Map.new(fn {score, idx} -> {idx, score} end)
+    end)
+  end
+
+  defp upcast_val_subscores(values), do: values
+
+  defp upcast_indexed_map(nil), do: nil
+
+  defp upcast_indexed_map(values) when is_list(values) do
+    values
+    |> Enum.with_index()
+    |> Map.new(fn {value, idx} -> {idx, value} end)
+  end
+
+  defp upcast_indexed_map(values), do: values
+
   defp best_index([]), do: nil
 
   defp best_index(scores) do
@@ -200,7 +225,19 @@ defmodule GEPA.Result do
 
   defp list_values_to_mapsets(nil), do: nil
 
-  defp list_values_to_mapsets(values) do
+  defp list_values_to_mapsets(values) when is_list(values) do
+    values
+    |> Enum.with_index()
+    |> Map.new(fn {value, idx} ->
+      if is_list(value) do
+        {idx, MapSet.new(value)}
+      else
+        {idx, value}
+      end
+    end)
+  end
+
+  defp list_values_to_mapsets(values) when is_map(values) do
     Map.new(values, fn {key, value} ->
       if is_list(value) do
         {key, MapSet.new(value)}
