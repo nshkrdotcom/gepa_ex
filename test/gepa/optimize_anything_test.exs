@@ -116,6 +116,72 @@ defmodule GEPA.OptimizeAnythingTest do
     assert Enum.any?(calls_seen, fn {1, scores} -> scores == [0.1] end)
   end
 
+  test "best_example_evals accumulate top scored entries with side_info" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    proposer = fn candidate, _dataset, components ->
+      next_guess =
+        candidate
+        |> Map.fetch!("number")
+        |> String.to_integer()
+        |> then(&(&1 - 4))
+        |> Integer.to_string()
+
+      Map.new(components, &{&1, next_guess})
+    end
+
+    evaluator = fn candidate, _example, %OptimizationState{} = opt_state ->
+      guess = String.to_integer(candidate["number"])
+      off_by = abs(guess - 42)
+      score = -off_by * 1.0
+
+      Agent.update(calls, fn entries ->
+        entries ++
+          [
+            %{
+              guess: guess,
+              score: score,
+              best_example_evals: opt_state.best_example_evals
+            }
+          ]
+      end)
+
+      {score, %{guess: guess, off_by: off_by, scores: %{"distance" => score}}}
+    end
+
+    {:ok, _result} =
+      OptimizeAnything.optimize_anything(
+        seed_candidate: %{"number" => "50"},
+        evaluator: evaluator,
+        objective: "Guess the golden integer.",
+        engine: %{
+          max_metric_calls: 8,
+          reflection_minibatch_size: 1,
+          best_example_evals_k: 3
+        },
+        reflection: %{custom_candidate_proposer: proposer, skip_perfect_score: false}
+      )
+
+    calls_seen = Agent.get(calls, & &1)
+    assert hd(calls_seen).best_example_evals == []
+
+    calls_with_best_evals =
+      Enum.filter(calls_seen, &(&1.best_example_evals != []))
+
+    assert calls_with_best_evals != []
+
+    Enum.each(calls_with_best_evals, fn call ->
+      assert length(call.best_example_evals) <= 3
+      assert call.best_example_evals == Enum.sort_by(call.best_example_evals, & &1.score, :desc)
+
+      Enum.each(call.best_example_evals, fn entry ->
+        assert is_number(entry.score)
+        assert is_map(entry.side_info)
+        assert Map.has_key?(entry.side_info, "guess")
+      end)
+    end)
+  end
+
   test "memory cache avoids repeated evaluator calls for identical candidate/example pairs" do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
