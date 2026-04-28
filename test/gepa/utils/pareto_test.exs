@@ -107,6 +107,18 @@ defmodule GEPA.Utils.ParetoTest do
   end
 
   describe "select_from_pareto_front/3" do
+    test "respects upstream frequency-biased candidate selection scenario" do
+      fronts = %{
+        "val0" => MapSet.new([0, 1]),
+        "val1" => MapSet.new([1])
+      }
+
+      scores = %{0 => 0.3, 1 => 0.6}
+      rand_state = :rand.seed(:exsss, {0, 0, 0})
+
+      assert {1, _new_rand_state} = Pareto.select_from_pareto_front(fronts, scores, rand_state)
+    end
+
     test "selects a program from the pareto front" do
       scores = %{0 => 0.9, 1 => 0.8}
 
