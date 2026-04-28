@@ -148,6 +148,7 @@ defmodule GEPA.OptimizeAnything.Config do
             evaluator: nil,
             objective: nil,
             background: nil,
+            callbacks: [],
             engine: %EngineConfig{},
             reflection: %ReflectionConfig{},
             merge: %MergeConfig{},
@@ -167,6 +168,7 @@ defmodule GEPA.OptimizeAnything.Config do
       evaluator: Map.get(opts, :evaluator),
       objective: Map.get(opts, :objective),
       background: Map.get(opts, :background),
+      callbacks: List.wrap(Map.get(opts, :callbacks, [])),
       engine: normalize_nested(opts, :engine, EngineConfig),
       reflection: normalize_nested(opts, :reflection, ReflectionConfig),
       merge: normalize_nested(opts, :merge, MergeConfig),
@@ -184,6 +186,7 @@ defmodule GEPA.OptimizeAnything.Config do
       evaluator: config.evaluator,
       objective: config.objective,
       background: config.background,
+      callbacks: config.callbacks,
       engine: Map.from_struct(config.engine),
       reflection: Map.from_struct(config.reflection),
       merge: Map.from_struct(config.merge),
@@ -1191,6 +1194,7 @@ defmodule GEPA.OptimizeAnything do
       use_merge: config.merge.use_merge,
       max_merge_invocations: config.merge.max_merge_invocations,
       merge_val_overlap_floor: config.merge.merge_val_overlap_floor,
+      callbacks: config.callbacks,
       tracker: build_tracker(config.tracking),
       progress: config.engine.display_progress_bar
     ]
