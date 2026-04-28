@@ -125,8 +125,6 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore do
     Map.get(info, "embedding_dimension") || Map.get(info, :embedding_dimension)
   end
 
-  defp dimension_from_collection_info(_info), do: nil
-
   defp adapter_module(%module{}), do: module
   defp adapter_module(module) when is_atom(module), do: module
 end

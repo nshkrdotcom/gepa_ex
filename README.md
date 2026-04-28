@@ -7,7 +7,7 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/gepa_ex.svg)](https://hex.pm/packages/gepa_ex)
 [![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
 [![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
-[![Tests](https://img.shields.io/badge/tests-920%2F920%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-923%2F923%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
 

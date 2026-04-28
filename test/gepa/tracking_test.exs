@@ -2,7 +2,7 @@ defmodule GEPA.TrackingTest do
   use GEPA.SupertesterCase, isolation: :full_isolation
 
   alias GEPA.Adapters.Basic
-  alias GEPA.Tracking.InMemory
+  alias GEPA.Tracking.{InMemory, MLflow, WandB}
 
   test "in-memory tracker records metrics, tables, and summaries with key prefix" do
     tracker = InMemory.new(key_prefix: "run")
@@ -37,17 +37,17 @@ defmodule GEPA.TrackingTest do
   end
 
   test "external tracker stubs fail explicitly when not configured" do
-    wandb = GEPA.Tracking.WandB.new()
-    mlflow = GEPA.Tracking.MLflow.new()
+    wandb = WandB.new()
+    mlflow = MLflow.new()
 
-    assert {:error, {:not_configured, :wandb}} = GEPA.Tracking.WandB.start(wandb)
-    assert {:error, {:not_configured, :mlflow}} = GEPA.Tracking.MLflow.start(mlflow)
-    refute GEPA.Tracking.WandB.configured?(wandb)
-    refute GEPA.Tracking.MLflow.configured?(mlflow)
+    assert {:error, {:not_configured, :wandb}} = WandB.start(wandb)
+    assert {:error, {:not_configured, :mlflow}} = MLflow.start(mlflow)
+    refute WandB.configured?(wandb)
+    refute MLflow.configured?(mlflow)
   end
 
   test "external tracker stubs do not crash optimizer dispatch" do
-    tracker = GEPA.Tracking.WandB.new()
+    tracker = WandB.new()
 
     assert :ok = GEPA.Tracking.start(tracker)
     assert :ok = GEPA.Tracking.log_metrics(tracker, %{score: 1.0})

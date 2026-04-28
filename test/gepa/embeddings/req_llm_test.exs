@@ -2,6 +2,7 @@ defmodule GEPA.Embeddings.ReqLLMTest do
   use ExUnit.Case, async: true
 
   alias GEPA.Embeddings
+  alias GEPA.Embeddings.ReqLLM, as: ReqLLMEmbeddings
 
   defmodule FakeReqLLM do
     def put_key(key, value) do
@@ -29,7 +30,7 @@ defmodule GEPA.Embeddings.ReqLLMTest do
 
   test "ReqLLM-backed provider embeds one text through the behavior facade" do
     provider =
-      GEPA.Embeddings.ReqLLM.new!(
+      ReqLLMEmbeddings.new!(
         api_key: "test-key",
         req_llm_module: FakeReqLLM,
         dimensions: 3
@@ -45,7 +46,7 @@ defmodule GEPA.Embeddings.ReqLLMTest do
 
   test "ReqLLM-backed provider embeds batches and accepts provider options" do
     provider =
-      GEPA.Embeddings.ReqLLM.new!(
+      ReqLLMEmbeddings.new!(
         api_key: "test-key",
         provider_options: [task_type: "RETRIEVAL_DOCUMENT"],
         req_llm_module: FakeReqLLM
@@ -60,7 +61,7 @@ defmodule GEPA.Embeddings.ReqLLMTest do
 
   test "ReqLLM-backed provider can read Gemini API keys from env callback" do
     provider =
-      GEPA.Embeddings.ReqLLM.new!(
+      ReqLLMEmbeddings.new!(
         env: fn
           "GEMINI_API_KEY" -> "env-key"
           _name -> nil

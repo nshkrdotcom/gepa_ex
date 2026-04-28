@@ -249,20 +249,18 @@ defmodule GEPA.Adapters.GenericRAG.VectorStores.Qdrant do
   end
 
   defp normalize_document(%{} = doc) do
-    id = Map.get(doc, :id) || Map.get(doc, "id") || document_id(doc)
+    id = document_value(doc, [:id, "id"]) || document_id(doc)
 
     %{
       id: to_string(id),
-      content:
-        to_string(
-          Map.get(doc, :content) || Map.get(doc, "content") || Map.get(doc, :text) ||
-            Map.get(doc, "text") || ""
-        ),
-      metadata: Map.get(doc, :metadata) || Map.get(doc, "metadata") || %{},
-      embedding:
-        Map.get(doc, :embedding) || Map.get(doc, "embedding") || Map.get(doc, :vector) ||
-          Map.get(doc, "vector")
+      content: document_value(doc, [:content, "content", :text, "text"]) |> to_string(),
+      metadata: document_value(doc, [:metadata, "metadata"]) || %{},
+      embedding: document_value(doc, [:embedding, "embedding", :vector, "vector"])
     }
+  end
+
+  defp document_value(doc, keys) do
+    Enum.find_value(keys, &Map.get(doc, &1))
   end
 
   defp embed_query(%__MODULE__{embedder: nil}, _query), do: {:error, :missing_embedder}

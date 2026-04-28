@@ -5,41 +5,44 @@ defmodule GEPA.Adapters.GenericRAG.VectorStores.Stub do
     backend = Keyword.fetch!(opts, :backend)
 
     quote do
-      @behaviour GEPA.Adapters.GenericRAG.VectorStore
+      alias GEPA.Adapters.GenericRAG.VectorStore
+      alias GEPA.Adapters.GenericRAG.VectorStores.Stub, as: StubHelper
+
+      @behaviour VectorStore
 
       defstruct backend: unquote(backend), opts: []
 
       def new(opts \\ []), do: %__MODULE__{opts: opts}
 
       @impl true
-      def health_check(store), do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+      def health_check(store), do: StubHelper.error(store)
 
       @impl true
       def create_collection(store, _opts),
-        do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+        do: StubHelper.error(store)
 
       @impl true
       def reset_collection(store, _opts),
-        do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+        do: StubHelper.error(store)
 
       @impl true
       def upsert_documents(store, _documents, _opts),
-        do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+        do: StubHelper.error(store)
 
       @impl true
       def delete_documents(store, _ids, _opts),
-        do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+        do: StubHelper.error(store)
 
       @impl true
       def similarity_search(store, _query, _k, _filters),
-        do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+        do: StubHelper.error(store)
 
       @impl true
       def vector_search(store, _vector, _k, _filters),
-        do: GEPA.Adapters.GenericRAG.VectorStores.Stub.error(store)
+        do: StubHelper.error(store)
 
       @impl true
-      def get_collection_info(store), do: GEPA.Adapters.GenericRAG.VectorStores.Stub.info(store)
+      def get_collection_info(store), do: StubHelper.info(store)
 
       @impl true
       def embedding_dimension(_store), do: nil

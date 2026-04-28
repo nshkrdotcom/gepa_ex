@@ -55,7 +55,7 @@ defmodule GEPA.Adapters.GenericRAG.VectorStores.QdrantTest do
   end
 
   test "live Qdrant smoke stores and searches vectors when opted in" do
-    unless System.get_env("GEPA_LIVE_QDRANT") == "1" do
+    if System.get_env("GEPA_LIVE_QDRANT") != "1" do
       assert true
     else
       collection = "gepa_ex_test_#{System.unique_integer([:positive])}"
