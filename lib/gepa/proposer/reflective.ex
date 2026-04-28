@@ -138,8 +138,30 @@ defmodule GEPA.Proposer.Reflective do
     adapter = proposer.adapter
     capture_traces = true
 
+    GEPA.Callbacks.notify(proposer.callbacks, :evaluation_start, %{
+      iteration: iteration,
+      candidate_idx: candidate_idx,
+      batch_size: length(trainset_ids),
+      capture_traces: capture_traces,
+      parent_ids: parent_ids_for(state, candidate_idx),
+      inputs: minibatch,
+      is_seed_candidate: candidate_idx == 0
+    })
+
     case Dispatch.evaluate(adapter, minibatch, candidate, capture_traces) do
       {:ok, eval_curr} ->
+        GEPA.Callbacks.notify(proposer.callbacks, :evaluation_end, %{
+          iteration: iteration,
+          candidate_idx: candidate_idx,
+          scores: eval_curr.scores,
+          has_trajectories: has_trajectories?(eval_curr),
+          parent_ids: parent_ids_for(state, candidate_idx),
+          outputs: eval_curr.outputs,
+          trajectories: eval_curr.trajectories,
+          objective_scores: eval_curr.objective_scores,
+          is_seed_candidate: candidate_idx == 0
+        })
+
         current_metric_calls = evaluation_metric_calls(eval_curr, trainset_ids)
 
         cond do
@@ -148,7 +170,8 @@ defmodule GEPA.Proposer.Reflective do
               iteration: iteration,
               candidate_idx: candidate_idx,
               reason: :no_trajectories,
-              scores: eval_curr.scores
+              scores: eval_curr.scores,
+              is_seed_candidate: candidate_idx == 0
             })
 
             {:none, proposer, state,
@@ -159,7 +182,8 @@ defmodule GEPA.Proposer.Reflective do
               iteration: iteration,
               candidate_idx: candidate_idx,
               reason: :all_scores_perfect,
-              scores: eval_curr.scores
+              scores: eval_curr.scores,
+              is_seed_candidate: candidate_idx == 0
             })
 
             {:none, proposer, state,
@@ -175,10 +199,39 @@ defmodule GEPA.Proposer.Reflective do
                 eval_curr
               )
 
-            case generate_improved_candidate(proposer, candidate, eval_curr, components) do
+            case generate_improved_candidate(
+                   proposer,
+                   candidate,
+                   eval_curr,
+                   components,
+                   iteration,
+                   candidate_idx
+                 ) do
               {:ok, new_candidate, proposal_metadata} ->
+                GEPA.Callbacks.notify(proposer.callbacks, :evaluation_start, %{
+                  iteration: iteration,
+                  candidate_idx: nil,
+                  batch_size: length(trainset_ids),
+                  capture_traces: false,
+                  parent_ids: [candidate_idx],
+                  inputs: minibatch,
+                  is_seed_candidate: false
+                })
+
                 case Dispatch.evaluate(adapter, minibatch, new_candidate, false) do
                   {:ok, eval_new} ->
+                    GEPA.Callbacks.notify(proposer.callbacks, :evaluation_end, %{
+                      iteration: iteration,
+                      candidate_idx: nil,
+                      scores: eval_new.scores,
+                      has_trajectories: has_trajectories?(eval_new),
+                      parent_ids: [candidate_idx],
+                      outputs: eval_new.outputs,
+                      trajectories: eval_new.trajectories,
+                      objective_scores: eval_new.objective_scores,
+                      is_seed_candidate: false
+                    })
+
                     num_metric_calls =
                       current_metric_calls + evaluation_metric_calls(eval_new, trainset_ids)
 
@@ -239,6 +292,15 @@ defmodule GEPA.Proposer.Reflective do
 
   defp no_trajectories?(eval_batch) do
     is_nil(eval_batch.trajectories) or eval_batch.trajectories == []
+  end
+
+  defp has_trajectories?(eval_batch), do: not no_trajectories?(eval_batch)
+
+  defp parent_ids_for(state, candidate_idx) do
+    state.parent_program_for_candidate
+    |> Enum.at(candidate_idx, [])
+    |> List.wrap()
+    |> Enum.reject(&is_nil/1)
   end
 
   defp subsample_eval(eval_batch) do
@@ -333,19 +395,42 @@ defmodule GEPA.Proposer.Reflective do
     end
   end
 
-  defp generate_improved_candidate(proposer, candidate, eval_batch, components) do
+  defp generate_improved_candidate(
+         proposer,
+         candidate,
+         eval_batch,
+         components,
+         iteration,
+         candidate_idx
+       ) do
     adapter = proposer.adapter
 
     case Dispatch.make_reflective_dataset(adapter, candidate, eval_batch, components) do
       {:ok, reflective_dataset} ->
         GEPA.Callbacks.notify(proposer.callbacks, :reflective_dataset_built, %{
+          iteration: iteration,
+          candidate_idx: candidate_idx,
           components: components,
           dataset: reflective_dataset
+        })
+
+        GEPA.Callbacks.notify(proposer.callbacks, :proposal_start, %{
+          iteration: iteration,
+          parent_candidate: candidate,
+          components: components,
+          reflective_dataset: reflective_dataset
         })
 
         with {:ok, new_texts, prompts, raw_lm_outputs} <-
                propose_new_texts(proposer, candidate, reflective_dataset, components) do
           new_candidate = Map.merge(candidate, new_texts)
+
+          GEPA.Callbacks.notify(proposer.callbacks, :proposal_end, %{
+            iteration: iteration,
+            new_instructions: new_texts,
+            prompts: prompts,
+            raw_lm_outputs: raw_lm_outputs
+          })
 
           GEPA.Callbacks.notify(proposer.callbacks, :proposal_generated_texts, %{
             new_instructions: new_texts,

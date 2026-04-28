@@ -66,6 +66,7 @@ defmodule GEPA.Engine do
     # Save final state if run_dir configured
     if config[:run_dir] do
       save_state(final_state, config.run_dir)
+      notify_state_saved(config, final_state)
     end
 
     Telemetry.emit_run_stop(final_state, run_start_ms)
@@ -149,6 +150,8 @@ defmodule GEPA.Engine do
             {merge_proposal, updated_proposer} =
               Merge.propose(merge_proposer, state)
 
+            notify_merge_attempt(config, iteration, should_attempt_merge?, merge_proposal)
+
             updated_proposer =
               if should_attempt_merge? do
                 %{updated_proposer | last_iter_found_new_program: false}
@@ -210,6 +213,8 @@ defmodule GEPA.Engine do
                 new_score: elem(State.get_program_score(new_state, new_candidate_idx), 0)
               })
 
+              notify_merge_decision(config, iteration, proposal, new_candidate_idx, :accepted)
+
               Telemetry.emit_proposal_decision(
                 proposal,
                 iteration,
@@ -241,6 +246,8 @@ defmodule GEPA.Engine do
                 new_score: subsample_after_sum,
                 reason: :not_improved
               })
+
+              notify_merge_decision(config, iteration, proposal, nil, :rejected)
 
               Telemetry.emit_proposal_decision(
                 proposal,
@@ -288,6 +295,7 @@ defmodule GEPA.Engine do
         end
 
       new_config = update_stop_conditions(new_config, new_state)
+      notify_budget_updated(config, iteration, state, new_state, new_config)
 
       iter_duration_ms = System.monotonic_time(:millisecond) - iter_start_ms
 
@@ -334,9 +342,11 @@ defmodule GEPA.Engine do
     rescue
       exception ->
         if Map.get(config, :raise_on_exception, true) do
+          notify_error(config, state.i + 1, exception, false)
           reraise exception, __STACKTRACE__
         else
           Logger.warning("Reflective proposal raised: #{Exception.message(exception)}")
+          notify_error(config, state.i + 1, exception, true)
           {nil, state, config, 0}
         end
     end
@@ -344,9 +354,11 @@ defmodule GEPA.Engine do
 
   defp handle_reflective_error(reason, proposer, state, config) do
     if Map.get(config, :raise_on_exception, true) do
+      notify_error(config, state.i + 1, reason, false)
       raise "Reflective proposal failed: #{inspect(reason)}"
     else
       Logger.warning("Reflective proposal failed: #{inspect(reason)}")
+      notify_error(config, state.i + 1, reason, true)
       new_config = put_reflective_proposer(config, proposer)
       {nil, state, new_config, 0}
     end
@@ -381,6 +393,17 @@ defmodule GEPA.Engine do
     # Evaluate seed candidate on validation set
     valset_ids = DataLoader.all_ids(config.valset)
     adapter = config.adapter
+    validation_batch = DataLoader.fetch(config.valset, valset_ids)
+
+    Callbacks.notify(config[:callbacks], :evaluation_start, %{
+      iteration: 0,
+      candidate_idx: 0,
+      batch_size: length(valset_ids),
+      capture_traces: false,
+      parent_ids: [],
+      inputs: validation_batch,
+      is_seed_candidate: true
+    })
 
     eval_start = System.monotonic_time(:millisecond)
 
@@ -393,6 +416,18 @@ defmodule GEPA.Engine do
         false,
         config[:evaluation_cache]
       )
+
+    Callbacks.notify(config[:callbacks], :evaluation_end, %{
+      iteration: 0,
+      candidate_idx: 0,
+      scores: eval_batch.scores,
+      has_trajectories: has_trajectories?(eval_batch),
+      parent_ids: [],
+      outputs: eval_batch.outputs,
+      trajectories: eval_batch.trajectories,
+      objective_scores: eval_batch.objective_scores,
+      is_seed_candidate: true
+    })
 
     duration_ms = System.monotonic_time(:millisecond) - eval_start
 
@@ -408,12 +443,26 @@ defmodule GEPA.Engine do
 
     Telemetry.emit_baseline(eval_batch, length(valset_ids))
 
-    State.new(config.seed_candidate, eval_batch, valset_ids,
-      track_best_outputs: config[:track_best_outputs] || false,
-      frontier_type: config[:frontier_type] || :instance,
-      evaluation_cache: evaluation_cache,
-      adapter_state: adapter_state_from_adapter(adapter)
+    state =
+      State.new(config.seed_candidate, eval_batch, valset_ids,
+        track_best_outputs: config[:track_best_outputs] || false,
+        frontier_type: config[:frontier_type] || :instance,
+        evaluation_cache: evaluation_cache,
+        adapter_state: adapter_state_from_adapter(adapter)
+      )
+
+    notify_valset_evaluated(
+      config,
+      0,
+      0,
+      config.seed_candidate,
+      valset_ids,
+      eval_batch,
+      [],
+      state
     )
+
+    state
   end
 
   defp optimization_loop(state, config, progress) do
@@ -434,6 +483,8 @@ defmodule GEPA.Engine do
             new_state
             |> sync_adapter_state_to_state(config.adapter)
             |> save_state(config.run_dir)
+
+            notify_state_saved(config, new_state)
           end
 
           optimization_loop(new_state, new_config, progress)
@@ -526,6 +577,17 @@ defmodule GEPA.Engine do
     # Evaluate on the validation IDs selected by the configured policy.
     valset_ids = validation_eval_ids(config, state, length(state.program_candidates))
     adapter = config.adapter
+    validation_batch = DataLoader.fetch(config.valset, valset_ids)
+
+    Callbacks.notify(config[:callbacks], :evaluation_start, %{
+      iteration: iteration,
+      candidate_idx: nil,
+      batch_size: length(valset_ids),
+      capture_traces: false,
+      parent_ids: proposal.parent_program_ids,
+      inputs: validation_batch,
+      is_seed_candidate: false
+    })
 
     eval_start = System.monotonic_time(:millisecond)
 
@@ -540,6 +602,18 @@ defmodule GEPA.Engine do
       {:ok, eval_batch, evaluation_cache} ->
         duration_ms = System.monotonic_time(:millisecond) - eval_start
         state = %{state | evaluation_cache: evaluation_cache}
+
+        Callbacks.notify(config[:callbacks], :evaluation_end, %{
+          iteration: iteration,
+          candidate_idx: nil,
+          scores: eval_batch.scores,
+          has_trajectories: has_trajectories?(eval_batch),
+          parent_ids: proposal.parent_program_ids,
+          outputs: eval_batch.outputs,
+          trajectories: eval_batch.trajectories,
+          objective_scores: eval_batch.objective_scores,
+          is_seed_candidate: false
+        })
 
         # Create scores map
         val_scores =
@@ -571,6 +645,19 @@ defmodule GEPA.Engine do
             metric_calls: eval_batch.num_metric_calls || map_size(val_scores)
           )
 
+        notify_valset_evaluated(
+          config,
+          iteration,
+          new_idx,
+          proposal.candidate,
+          valset_ids,
+          eval_batch,
+          proposal.parent_program_ids,
+          new_state
+        )
+
+        notify_pareto_front_updated(config, iteration, state, new_state)
+
         Telemetry.emit_evaluation_batch(
           iteration,
           :val,
@@ -591,6 +678,7 @@ defmodule GEPA.Engine do
 
       {:error, reason} ->
         Logger.error("Failed to evaluate proposal: #{inspect(reason)}")
+        notify_error(config, iteration, reason, false)
         state
     end
   end
@@ -712,6 +800,146 @@ defmodule GEPA.Engine do
   defp sync_adapter_state_to_state(state, adapter) do
     %{state | adapter_state: adapter_state_from_adapter(adapter)}
   end
+
+  defp has_trajectories?(%EvaluationBatch{trajectories: trajectories}) do
+    is_list(trajectories) and trajectories != []
+  end
+
+  defp notify_merge_attempt(_config, _iteration, false, _proposal), do: :ok
+
+  defp notify_merge_attempt(config, iteration, true, %CandidateProposal{} = proposal) do
+    Callbacks.notify(config[:callbacks], :merge_attempted, %{
+      iteration: iteration,
+      parent_ids: proposal.parent_program_ids,
+      merged_candidate: proposal.candidate
+    })
+  end
+
+  defp notify_merge_attempt(config, iteration, true, _proposal) do
+    Callbacks.notify(config[:callbacks], :merge_rejected, %{
+      iteration: iteration,
+      parent_ids: [],
+      reason: :no_merge_candidate
+    })
+  end
+
+  defp notify_merge_decision(
+         config,
+         iteration,
+         %CandidateProposal{tag: "merge"} = proposal,
+         idx,
+         :accepted
+       ) do
+    Callbacks.notify(config[:callbacks], :merge_accepted, %{
+      iteration: iteration,
+      new_candidate_idx: idx,
+      parent_ids: proposal.parent_program_ids
+    })
+  end
+
+  defp notify_merge_decision(
+         config,
+         iteration,
+         %CandidateProposal{tag: "merge"} = proposal,
+         _idx,
+         :rejected
+       ) do
+    Callbacks.notify(config[:callbacks], :merge_rejected, %{
+      iteration: iteration,
+      parent_ids: proposal.parent_program_ids,
+      reason: :not_improved
+    })
+  end
+
+  defp notify_merge_decision(_config, _iteration, _proposal, _idx, _decision), do: :ok
+
+  defp notify_pareto_front_updated(config, iteration, old_state, new_state) do
+    old_front = front_program_indices(old_state)
+    new_front = front_program_indices(new_state)
+
+    Callbacks.notify(config[:callbacks], :pareto_front_updated, %{
+      iteration: iteration,
+      new_front: new_front,
+      displaced_candidates: old_front -- new_front
+    })
+  end
+
+  defp front_program_indices(state) do
+    state
+    |> State.get_pareto_front_mapping()
+    |> Map.values()
+    |> Enum.flat_map(&MapSet.to_list/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp notify_state_saved(config, state) do
+    Callbacks.notify(config[:callbacks], :state_saved, %{
+      iteration: state.i + 1,
+      run_dir: config.run_dir
+    })
+  end
+
+  defp notify_budget_updated(config, iteration, old_state, new_state, new_config) do
+    Callbacks.notify(config[:callbacks], :budget_updated, %{
+      iteration: iteration,
+      metric_calls_used: new_state.total_num_evals,
+      metric_calls_delta: new_state.total_num_evals - old_state.total_num_evals,
+      metric_calls_remaining: metric_calls_remaining(new_config, new_state)
+    })
+  end
+
+  defp metric_calls_remaining(config, state) do
+    config
+    |> Map.get(:stop_conditions, [])
+    |> List.wrap()
+    |> Enum.find_value(fn
+      %GEPA.StopCondition.MaxCalls{max_calls: max_calls} ->
+        max(max_calls - state.total_num_evals, 0)
+
+      _condition ->
+        nil
+    end)
+  end
+
+  defp notify_valset_evaluated(
+         config,
+         iteration,
+         candidate_idx,
+         candidate,
+         valset_ids,
+         %EvaluationBatch{} = eval_batch,
+         parent_ids,
+         state
+       ) do
+    scores_by_val_id = Enum.zip(valset_ids, eval_batch.scores) |> Map.new()
+    outputs_by_val_id = Enum.zip(valset_ids, eval_batch.outputs) |> Map.new()
+    average_score = average_score(eval_batch.scores)
+
+    Callbacks.notify(config[:callbacks], :valset_evaluated, %{
+      iteration: iteration,
+      candidate_idx: candidate_idx,
+      candidate: candidate,
+      scores_by_val_id: scores_by_val_id,
+      average_score: average_score,
+      num_examples_evaluated: length(valset_ids),
+      total_valset_size: length(DataLoader.all_ids(config.valset)),
+      parent_ids: parent_ids,
+      is_best_program: candidate_idx == best_program_idx(state),
+      outputs_by_val_id: outputs_by_val_id
+    })
+  end
+
+  defp notify_error(config, iteration, exception, will_continue) do
+    Callbacks.notify(config[:callbacks], :error, %{
+      iteration: iteration,
+      exception: exception,
+      will_continue: will_continue
+    })
+  end
+
+  defp average_score([]), do: 0.0
+  defp average_score(scores), do: Enum.sum(scores) / length(scores)
 
   defp save_state(state, run_dir) do
     path = Path.join(run_dir, "gepa_state.etf")

@@ -11,11 +11,13 @@ defmodule GEPA.Callbacks do
     * module exporting `event_name/1` or `on_event_name/1`
     * struct whose module exports `event_name/2` or `on_event_name/2`
 
-  Callback failures are not swallowed.  GEPA uses callbacks for observability;
-  fail-fast behavior keeps instrumentation bugs visible during development.
+  Callback failures are logged and do not prevent later callbacks from
+  receiving the same event, matching the upstream GEPA callback contract.
   """
 
-  @type event_name :: atom()
+  require Logger
+
+  @type event_name :: atom() | String.t()
   @type event :: map()
   @type callback :: function() | module() | struct()
 
@@ -25,7 +27,12 @@ defmodule GEPA.Callbacks do
   def notify([], _event_name, _event), do: :ok
 
   def notify(callbacks, event_name, event) when is_list(callbacks) do
-    Enum.each(callbacks, &notify_one(&1, event_name, event))
+    event_name = normalize_event_name(event_name)
+
+    Enum.each(callbacks, fn callback ->
+      notify_one_safely(callback, event_name, event)
+    end)
+
     :ok
   end
 
@@ -34,6 +41,25 @@ defmodule GEPA.Callbacks do
   @doc "Return the upstream-style `on_*` method atom for an event name."
   @spec method_name(event_name()) :: atom()
   def method_name(event_name) when is_atom(event_name), do: String.to_atom("on_#{event_name}")
+  def method_name("on_" <> _ = event_name), do: String.to_atom(event_name)
+  def method_name(event_name) when is_binary(event_name), do: String.to_atom("on_#{event_name}")
+
+  defp normalize_event_name(event_name) when is_atom(event_name), do: event_name
+
+  defp normalize_event_name("on_" <> event_name) when is_binary(event_name) do
+    String.to_atom(event_name)
+  end
+
+  defp normalize_event_name(event_name) when is_binary(event_name), do: String.to_atom(event_name)
+
+  defp notify_one_safely(callback, event_name, event) do
+    notify_one(callback, event_name, event)
+  rescue
+    exception ->
+      Logger.warning(
+        "GEPA callback #{inspect(callback)} failed on #{method_name(event_name)}: #{Exception.message(exception)}"
+      )
+  end
 
   defp notify_one(callback, event_name, event) when is_function(callback, 2) do
     callback.(event_name, event)
@@ -78,4 +104,55 @@ defmodule GEPA.Callbacks do
   end
 
   defp notify_one(_callback, _event_name, _event), do: :ok
+end
+
+defmodule GEPA.Callbacks.Composite do
+  @moduledoc """
+  Callback container that forwards events to each registered callback.
+  """
+
+  defstruct callbacks: []
+
+  @type t :: %__MODULE__{callbacks: [GEPA.Callbacks.callback()]}
+
+  @doc "Create a composite callback."
+  @spec new([GEPA.Callbacks.callback()]) :: t()
+  def new(callbacks \\ []), do: %__MODULE__{callbacks: List.wrap(callbacks)}
+
+  @doc "Return a composite with one callback appended."
+  @spec add(t(), GEPA.Callbacks.callback()) :: t()
+  def add(%__MODULE__{} = composite, callback) do
+    %{composite | callbacks: composite.callbacks ++ [callback]}
+  end
+
+  for event_name <- [
+        :optimization_start,
+        :optimization_end,
+        :iteration_start,
+        :iteration_end,
+        :candidate_selected,
+        :minibatch_sampled,
+        :evaluation_start,
+        :evaluation_end,
+        :evaluation_skipped,
+        :reflective_dataset_built,
+        :proposal_start,
+        :proposal_end,
+        :candidate_accepted,
+        :candidate_rejected,
+        :merge_attempted,
+        :merge_accepted,
+        :merge_rejected,
+        :pareto_front_updated,
+        :state_saved,
+        :budget_updated,
+        :error,
+        :valset_evaluated
+      ] do
+    method_name = String.to_atom("on_#{event_name}")
+
+    def unquote(method_name)(%__MODULE__{} = composite, event) do
+      GEPA.Callbacks.notify(composite.callbacks, unquote(event_name), event)
+    end
+  end
 end
