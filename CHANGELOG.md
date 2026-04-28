@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.3.0 · 2026-04-28
+
+### Added
+- Added upstream-style top-level convenience surfaces: `GEPA.optimize_anything/1` and `GEPA.default_adapter/1`.
+- Added `GEPA.Adapters.Confidence` plus `GEPA.Adapters.Confidence.Scoring` strategies for confidence-aware classification optimization.
+- Added `GEPA.Adapters.GenericRAG`, `GEPA.Adapters.GenericRAG.Pipeline`, `GEPA.Adapters.GenericRAG.Metrics`, and the shared vector-store contract for headless RAG optimization.
+- Added `GEPA.Embeddings` and `GEPA.Embeddings.ReqLLM`; ReqLLM/Gemini embeddings are the first real embedding provider.
+- Added local Qdrant support through `GEPA.Adapters.GenericRAG.VectorStores.Qdrant` and `docker-compose.yml`.
+- Added explicit vector-store stubs for pgvector, Weaviate, LanceDB, Chroma, and Milvus so future backends can replace the current modules without changing Generic RAG call sites.
+- Added W&B and MLflow tracking stubs behind the tracking abstraction, with clear failure behavior when hosted clients are not configured.
+- Added `GEPA.LM` and `GEPA.LM.Tracking` compatibility helpers for upstream LM-style usage and cost/token counters.
+- Added `GEPA.Image`, `GEPA.Seed`, richer `GEPA.Visualization`, and official alias modules for documented upstream naming.
+- Added static/config MCP adapter inventory and tests while keeping MCP runtime transports out of scope for this line of work.
+- Added live examples for ADR cloud optimization, ARC grids, blackbox search, circle packing, Qdrant RAG, and confidence-aware classification.
+- Added `guides/upstream_api_parity.md` plus new HexDocs guides for adapters, candidate selection, component selection, batch sampling, acceptance criteria, merge, stop conditions, callbacks, cost tracking, experiment tracking, FAQ, and contributing.
+
+### Changed
+- Reworked adapter dispatch so structs, modules, and optional adapter-state/proposal hooks are handled consistently.
+- Aligned core engine behavior more closely with upstream GEPA semantics, including acceptance, callbacks, state persistence, merge scheduling, metric-call accounting, and proposal handling.
+- Expanded `GEPA.State` persistence and legacy upcast behavior for newer Pareto, cache, adapter-state, and validation-schema fields.
+- Improved `GEPA.Result` round-tripping and public best-candidate helpers.
+- Refined `GEPA.Proposer.InstructionProposal`, reflective mutation, merge proposer, and merge utilities against upstream signature and merge behavior.
+- Expanded `GEPA.CodeExecution` from simple snippet execution to rich structured results, hashing, side-info conversion, and safer example usage.
+- Tightened `GEPA.DataLoader`, `GEPA.EvaluationBatch`, `GEPA.EvaluationCache`, candidate selection, component selection, batch sampling, acceptance criteria, and Pareto utility behavior against upstream parity tests.
+- Updated Agent Session Manager and ReqLLM integration defaults for the live adapter path, including ASM/Gemini defaults documented around `gemini-3.1-flash-lite-preview`.
+- Updated examples to be live-only for public scripts and to reject fake/mock provider paths outside tests.
+- Converted the generated `GepaEx.hello/0` scaffold into a hidden compatibility facade that delegates to the main `GEPA` entrypoints.
+- Reworked README onboarding, integration roadmap, examples catalog, and HexDocs guide navigation around the current 0.3.0 public surface.
+
+### Fixed
+- Fixed Dialyzer, compiler warning, Credo strict, docs, and formatting issues found during the integration and parity pass.
+- Fixed stale example API usage in code execution and tracking examples.
+- Fixed confidence adapter documentation and examples to use the actual Elixir option names and provider capabilities.
+- Fixed live example runner behavior so the confidence adapter uses ReqLLM structured output even when the rest of the suite is using Agent Session Manager.
+- Fixed README test badge count after the public API tests were added.
+
+### Docs
+- Added a durable upstream API parity guide that records implemented, represented, stubbed, and WONT BUILD surfaces.
+- Expanded Generic RAG documentation with Qdrant, embedding generation, vector-store behavior, backend stubs, and live setup expectations.
+- Expanded confidence-adapter documentation with ReqLLM structured-output guidance and ASM structured-output limitations.
+- Added professional HexDocs menu coverage for guide, example, integration, and public API parity workflows.
+- Updated `examples/README.md` to cover all shipped live examples and their real adapter requirements.
+- Documented the integration roadmap and upstream gaps in the README, including vector stores, embeddings, tracking, MCP scope, and live-only examples.
+
+### Testing
+- Expanded the suite to 925 tests plus 16 properties.
+- Added upstream parity coverage for merge behavior, instruction proposal signatures, acceptance criteria, AIME-style optimization, tracking, batch sampling, callbacks, candidate selection, confidence adapter/scoring, data loading, full-program adapter behavior, evaluation cache, evaluator wrapper, experiment tracker, GEPA utilities, images, imports, incremental evaluation, LM helpers, MCP static/config inventory, module selection, optimize-anything templates, callbacks, Pareto frontier types, RAG metrics, Generic RAG adapter, RAG interface/end-to-end/pipeline behavior, vector-store interface, refiner behavior, reflection cost tracking, result upcasting, seed generation, state persistence, visualization, and ADR/example parity.
+- Added integration coverage for Generic RAG and local Qdrant-backed workflows.
+- Completed full quality gates at release-prep checkpoints: `mix format --check-formatted`, `mix compile --warnings-as-errors --force`, `mix test`, `mix docs`, `mix dialyzer`, and `mix credo --strict`.
+
+### Scope Decisions
+- MCP runtime transports, MCP live examples, and MCP parity work remain WONT BUILD by explicit project direction on 2026-04-28.
+- DSPy, gskill, Terminal-Bench orchestration, and Python-specific harnesses are represented through Elixir headless mechanisms and examples rather than copied as runtime dependencies.
+- Qdrant is the first wired vector backend; other vector stores are intentionally stubbed until a larger vector subsystem or dedicated clients are introduced.
+- Qdrant stores and searches vectors only; embeddings are generated separately through `GEPA.Embeddings`.
+
 ## v0.2.0 · 2026-04-24
 
 ### Added
