@@ -172,7 +172,7 @@ defmodule GEPA.OptimizeAnything.Config do
       engine: normalize_nested(opts, :engine, EngineConfig),
       reflection: normalize_nested(opts, :reflection, ReflectionConfig),
       merge: normalize_nested(opts, :merge, MergeConfig),
-      refiner: normalize_nested(opts, :refiner, RefinerConfig),
+      refiner: normalize_refiner(opts),
       tracking: normalize_nested(opts, :tracking, TrackingConfig)
     })
   end
@@ -200,6 +200,37 @@ defmodule GEPA.OptimizeAnything.Config do
       nil -> module.new()
       %{__struct__: ^module} = value -> value
       value when is_list(value) or is_map(value) -> module.new(value)
+    end
+  end
+
+  defp normalize_refiner(opts) do
+    case Map.fetch(opts, :refiner) do
+      :error ->
+        RefinerConfig.new()
+
+      {:ok, nil} ->
+        RefinerConfig.new()
+
+      {:ok, %RefinerConfig{} = refiner} ->
+        enable_requested_refiner(refiner)
+
+      {:ok, value} when is_list(value) or is_map(value) ->
+        value
+        |> Map.new()
+        |> Map.put_new(:enabled, true)
+        |> RefinerConfig.new()
+    end
+  end
+
+  defp enable_requested_refiner(%RefinerConfig{enabled: true} = refiner), do: refiner
+
+  defp enable_requested_refiner(%RefinerConfig{} = refiner) do
+    defaults = RefinerConfig.new()
+
+    if Map.from_struct(refiner) == Map.from_struct(defaults) do
+      refiner
+    else
+      %{refiner | enabled: true}
     end
   end
 end
@@ -1240,7 +1271,9 @@ defmodule GEPA.OptimizeAnything do
         proposal_template: proposal_template || config.reflection.proposal_template
     }
 
-    %{config | reflection: reflection}
+    refiner = resolve_refiner_config(config.refiner, reflection_lm)
+
+    %{config | reflection: reflection, refiner: refiner}
   end
 
   defp resolve_reflection_lm(nil, _kwargs), do: nil
@@ -1265,6 +1298,22 @@ defmodule GEPA.OptimizeAnything do
   end
 
   defp resolve_reflection_lm(lm, _kwargs), do: lm
+
+  defp resolve_refiner_config(
+         %GEPA.OptimizeAnything.RefinerConfig{enabled: true, refiner_lm: nil} = refiner,
+         reflection_lm
+       ) do
+    %{refiner | refiner_lm: reflection_lm}
+  end
+
+  defp resolve_refiner_config(
+         %GEPA.OptimizeAnything.RefinerConfig{enabled: true, refiner_lm: lm} = refiner,
+         _reflection_lm
+       ) do
+    %{refiner | refiner_lm: resolve_reflection_lm(lm, nil)}
+  end
+
+  defp resolve_refiner_config(refiner, _reflection_lm), do: refiner
 
   defp provider_atom("openai"), do: :openai
   defp provider_atom("google"), do: :gemini
