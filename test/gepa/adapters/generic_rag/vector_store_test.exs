@@ -18,6 +18,24 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
     }
   ]
 
+  @interface_docs [
+    %{
+      id: "doc1",
+      content: "Machine learning is a subset of artificial intelligence.",
+      metadata: %{category: "AI", difficulty: "beginner"}
+    },
+    %{
+      id: "doc2",
+      content: "Neural networks are inspired by biological neural networks.",
+      metadata: %{category: "AI", difficulty: "intermediate"}
+    },
+    %{
+      id: "doc3",
+      content: "Python is a popular programming language for data science.",
+      metadata: %{category: "programming", difficulty: "beginner"}
+    }
+  ]
+
   @fixture_docs [
     %{
       id: "doc1",
@@ -162,5 +180,120 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
       assert function_exported?(VectorStore, :hybrid_search, 4)
       refute {:hybrid_search, 4} in callbacks
     end
+  end
+
+  describe "upstream vector store interface parity" do
+    test "abstract base class maps to a behaviour facade" do
+      assert Code.ensure_loaded?(VectorStore)
+      assert function_exported?(VectorStore, :behaviour_info, 1)
+      refute function_exported?(VectorStore, :new, 0)
+    end
+
+    test "mock vector store initialization maps to an in-memory store fixture" do
+      store = InMemory.new(collection_name: "test_collection", documents: @interface_docs)
+
+      assert store.collection_name == "test_collection"
+      assert length(store.documents) == 3
+    end
+
+    test "similarity search returns keyword matches within the requested limit" do
+      results =
+        interface_store()
+        |> VectorStore.similarity_search("machine learning", 2)
+
+      assert length(results) <= 2
+
+      assert Enum.any?(
+               results,
+               &String.contains?(String.downcase(&1.content), "machine learning")
+             )
+    end
+
+    test "similarity search applies metadata filters" do
+      results =
+        interface_store()
+        |> VectorStore.similarity_search("learning", 5, %{category: "AI"})
+
+      assert results != []
+      assert Enum.all?(results, &(get_in(&1, [:metadata, :category]) == "AI"))
+    end
+
+    test "similarity search returns an empty list when no document matches" do
+      assert [] = VectorStore.similarity_search(interface_store(), "quantum computing", 5)
+    end
+
+    test "vector search returns the first matching documents within the requested limit" do
+      results = VectorStore.vector_search(interface_store(), List.duplicate(0.1, 384), 2)
+
+      assert length(results) == 2
+      assert Enum.all?(results, &Map.has_key?(&1, :id))
+    end
+
+    test "vector search applies metadata filters" do
+      results =
+        interface_store()
+        |> VectorStore.vector_search(List.duplicate(0.1, 384), 5, %{difficulty: "beginner"})
+
+      assert results != []
+      assert Enum.all?(results, &(get_in(&1, [:metadata, :difficulty]) == "beginner"))
+    end
+
+    test "hybrid search returns similarity-style results" do
+      store = interface_store()
+
+      results = VectorStore.hybrid_search(store, "machine learning", 3, 0.5)
+      similarity_results = VectorStore.similarity_search(store, "machine learning", 3)
+
+      assert length(results) <= 3
+      assert length(results) == length(similarity_results)
+    end
+
+    test "collection info returns name, count, and backend type" do
+      store = InMemory.new(collection_name: "my_collection", documents: @interface_docs)
+
+      assert %{
+               "name" => "my_collection",
+               "document_count" => 3,
+               "vector_store_type" => "in_memory"
+             } = VectorStore.get_collection_info(store)
+    end
+
+    test "k parameter limits similarity and vector search results" do
+      store = interface_store()
+
+      similarity_results = VectorStore.similarity_search(store, "learning", 1)
+      vector_results = VectorStore.vector_search(store, List.duplicate(0.1, 384), 2)
+
+      assert length(similarity_results) <= 1
+      assert length(vector_results) <= 2
+    end
+
+    test "metadata filter matching handles exact, multiple, and missing-key checks" do
+      doc = %{metadata: %{category: "AI", difficulty: "beginner"}}
+
+      assert InMemory.matches_filters?(doc, %{category: "AI"})
+      refute InMemory.matches_filters?(doc, %{category: "programming"})
+      assert InMemory.matches_filters?(doc, %{category: "AI", difficulty: "beginner"})
+      refute InMemory.matches_filters?(%{metadata: %{category: "AI"}}, %{difficulty: "beginner"})
+    end
+
+    test "required interface methods are behaviour callbacks" do
+      callbacks = VectorStore.behaviour_info(:callbacks)
+
+      assert {:similarity_search, 4} in callbacks
+      assert {:vector_search, 4} in callbacks
+      assert {:get_collection_info, 1} in callbacks
+    end
+
+    test "optional hybrid search exists without being a required callback" do
+      callbacks = VectorStore.behaviour_info(:callbacks)
+
+      assert function_exported?(VectorStore, :hybrid_search, 4)
+      refute {:hybrid_search, 4} in callbacks
+    end
+  end
+
+  defp interface_store do
+    InMemory.new(documents: @interface_docs)
   end
 end
