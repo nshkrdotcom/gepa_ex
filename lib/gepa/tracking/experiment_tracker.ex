@@ -53,6 +53,8 @@ defmodule GEPA.Tracking.ExperimentTracker do
           tables: %{},
           config: %{},
           summary: %{},
+          summary_metrics: %{},
+          summary_params: %{},
           html: %{},
           defined_metrics: []
         }
@@ -88,7 +90,12 @@ defmodule GEPA.Tracking.ExperimentTracker do
 
   def log_config(%__MODULE__{} = tracker, config) when is_map(config) do
     Agent.update(tracker.agent, fn state ->
-      Map.update!(state, :config, &Map.merge(&1, prefix_map(tracker, config)))
+      config =
+        tracker
+        |> prefix_map(config)
+        |> normalize_config_values(tracker)
+
+      Map.update!(state, :config, &Map.merge(&1, config))
     end)
 
     :ok
@@ -103,6 +110,7 @@ defmodule GEPA.Tracking.ExperimentTracker do
       {metrics, stored_step} =
         metrics
         |> then(&prefix_map(tracker, &1))
+        |> filter_numeric()
         |> maybe_put_step_metric(tracker.wandb_step_metric, step)
 
       Map.update!(
@@ -142,7 +150,10 @@ defmodule GEPA.Tracking.ExperimentTracker do
 
   def log_summary(%__MODULE__{} = tracker, summary) when is_map(summary) do
     Agent.update(tracker.agent, fn state ->
-      Map.update!(state, :summary, &Map.merge(&1, prefix_map(tracker, summary)))
+      summary = prefix_map(tracker, summary)
+      state = update_mlflow_summary_state(state, tracker, summary)
+
+      Map.update!(state, :summary, &Map.merge(&1, summary))
     end)
 
     :ok
@@ -173,6 +184,18 @@ defmodule GEPA.Tracking.ExperimentTracker do
     Map.new(map, fn {key, value} -> {prefix(tracker, key), value} end)
   end
 
+  defp filter_numeric(map) do
+    Map.filter(map, fn {_key, value} -> is_number(value) end)
+  end
+
+  defp normalize_config_values(config, %__MODULE__{use_mlflow: true}) do
+    Map.new(config, fn {key, value} -> {key, stringify(value)} end)
+  end
+
+  defp normalize_config_values(config, %__MODULE__{}) do
+    Map.new(config, fn {key, value} -> {key, wandb_config_value(value)} end)
+  end
+
   defp maybe_define_step_metric(state, nil), do: state
 
   defp maybe_define_step_metric(state, step_metric) do
@@ -190,6 +213,35 @@ defmodule GEPA.Tracking.ExperimentTracker do
     {Map.put(metrics, step_metric, step), nil}
   end
 
+  defp update_mlflow_summary_state(state, %__MODULE__{use_mlflow: false}, _summary), do: state
+
+  defp update_mlflow_summary_state(state, %__MODULE__{use_mlflow: true}, summary) do
+    {metrics, params} =
+      Enum.reduce(summary, {%{}, %{}}, fn
+        {key, value}, {metrics, params} when is_number(value) ->
+          {Map.put(metrics, key, value), params}
+
+        {key, value}, {metrics, params} ->
+          {metrics, Map.put(params, "summary/#{key}", stringify(value))}
+      end)
+
+    state
+    |> Map.update!(:summary_metrics, &Map.merge(&1, metrics))
+    |> Map.update!(:summary_params, &Map.merge(&1, params))
+  end
+
   defp prefix(%__MODULE__{key_prefix: ""}, key), do: to_string(key)
   defp prefix(%__MODULE__{key_prefix: prefix}, key), do: prefix <> to_string(key)
+
+  defp stringify(value) when is_binary(value), do: value
+  defp stringify(value) when is_number(value), do: to_string(value)
+  defp stringify(value) when is_boolean(value), do: to_string(value)
+  defp stringify(nil), do: "nil"
+  defp stringify(value), do: inspect(value)
+
+  defp wandb_config_value(value)
+       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
+       do: value
+
+  defp wandb_config_value(value), do: inspect(value)
 end
