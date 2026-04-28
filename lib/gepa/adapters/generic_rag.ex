@@ -27,27 +27,37 @@ defmodule GEPA.Adapters.GenericRAG do
 
   alias GEPA.Adapters.GenericRAG.{Metrics, Pipeline}
 
-  defstruct [:vector_store, :llm_model, :pipeline, config: %{}, failure_score: 0.0]
+  defstruct [
+    :vector_store,
+    :llm_model,
+    :pipeline,
+    :rag_pipeline,
+    :evaluator,
+    config: %{},
+    failure_score: 0.0
+  ]
 
   @type t :: %__MODULE__{}
 
   @spec new(keyword() | map()) :: t()
   def new(opts \\ []) do
     opts = Map.new(opts)
-    config = Map.get(opts, :rag_config, Map.get(opts, :config, %{}))
-    vector_store = Map.fetch!(opts, :vector_store)
-    llm = Map.get(opts, :llm) || Map.get(opts, :llm_model) || Map.get(opts, :model)
+    config = get_any(opts, [:rag_config, "rag_config", :config, "config"]) || default_config()
+    vector_store = fetch_any!(opts, [:vector_store, "vector_store"])
+    llm = get_any(opts, [:llm, "llm", :llm_model, "llm_model", :model, "model"])
 
     pipeline =
-      Map.get(opts, :pipeline) ||
+      get_any(opts, [:pipeline, "pipeline", :rag_pipeline, "rag_pipeline"]) ||
         Pipeline.new(vector_store: vector_store, llm: llm, config: config)
 
     %__MODULE__{
       vector_store: vector_store,
       llm_model: llm,
       pipeline: pipeline,
+      rag_pipeline: pipeline,
+      evaluator: Metrics,
       config: config,
-      failure_score: Map.get(opts, :failure_score, 0.0) * 1.0
+      failure_score: (get_any(opts, [:failure_score, "failure_score"]) || 0.0) * 1.0
     }
   end
 
@@ -117,9 +127,11 @@ defmodule GEPA.Adapters.GenericRAG do
       )
 
     objective_scores = Map.merge(retrieval_metrics, generation_metrics)
+    execution_metadata = execution_metadata(trace, retrieval_metrics, generation_metrics, score)
 
     trajectory =
       trace
+      |> Map.put(:execution_metadata, execution_metadata)
       |> Map.put(:score, score)
       |> Map.put(:objective_scores, objective_scores)
       |> Map.put(
@@ -128,20 +140,32 @@ defmodule GEPA.Adapters.GenericRAG do
       )
 
     %{
-      output: trace.generated_answer,
+      output: rag_output(trace, generation_metrics, execution_metadata),
       score: score,
       objective_scores: objective_scores,
       trajectory: trajectory
     }
   rescue
     exception ->
+      error_message = Exception.message(exception)
+
       %{
-        output: %{error: Exception.message(exception)},
+        output: %{
+          final_answer: "Error: #{error_message}",
+          confidence_score: 0.0,
+          retrieved_docs: [],
+          total_tokens: 0
+        },
         score: adapter.failure_score,
         objective_scores: %{"error" => 1.0},
         trajectory: %{
           original_query: get_any(example, [:query, "query", :input, "input"]),
+          reformulated_query: get_any(example, [:query, "query", :input, "input"]),
+          retrieved_docs: [],
+          synthesized_context: "",
+          generated_answer: "Error: #{error_message}",
           error: Exception.format(:error, exception, __STACKTRACE__),
+          execution_metadata: %{error: error_message},
           score: adapter.failure_score,
           objective_scores: %{"error" => 1.0}
         }
@@ -169,6 +193,43 @@ defmodule GEPA.Adapters.GenericRAG do
     Map.new(candidate, fn {key, value} -> {to_string(key), to_string(value)} end)
   end
 
+  defp default_config do
+    %{
+      "retrieval_strategy" => "similarity",
+      "top_k" => 5,
+      "retrieval_weight" => 0.3,
+      "generation_weight" => 0.7,
+      "hybrid_alpha" => 0.5,
+      "filters" => nil
+    }
+  end
+
+  defp execution_metadata(trace, retrieval_metrics, generation_metrics, score) do
+    trace
+    |> Map.get(:execution_metadata, %{})
+    |> Map.merge(%{
+      retrieval_metrics: retrieval_metrics,
+      generation_metrics: generation_metrics,
+      overall_score: score
+    })
+  end
+
+  defp rag_output(trace, generation_metrics, execution_metadata) do
+    %{
+      final_answer: trace.generated_answer,
+      confidence_score: Map.get(generation_metrics, "answer_confidence", 0.5),
+      retrieved_docs: trace.retrieved_docs,
+      total_tokens:
+        Map.get(
+          execution_metadata,
+          :total_tokens,
+          estimate_token_count(trace.synthesized_context <> trace.generated_answer)
+        )
+    }
+  end
+
+  defp estimate_token_count(text), do: div(String.length(to_string(text)), 4)
+
   defp get_any(%GEPA.Adapters.GenericRAG.DataInst{} = struct, keys),
     do: struct |> Map.from_struct() |> get_any(keys)
 
@@ -177,6 +238,13 @@ defmodule GEPA.Adapters.GenericRAG do
   end
 
   defp get_any(_other, _keys), do: nil
+
+  defp fetch_any!(map, keys) do
+    case get_any(map, keys) do
+      nil -> raise KeyError, key: hd(keys), term: map
+      value -> value
+    end
+  end
 
   defp config_get(config, key, default),
     do: Map.get(config, key, Map.get(config, to_string(key), default))

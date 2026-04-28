@@ -77,7 +77,10 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
       generated_answer: generated_answer,
       execution_metadata: %{
         retrieval_strategy: config_get(pipeline.config, :retrieval_strategy, "similarity"),
-        top_k: config_get(pipeline.config, :top_k, 5)
+        top_k: config_get(pipeline.config, :top_k, 5),
+        retrieval_count: length(retrieved_docs),
+        total_tokens: estimate_token_count(context <> generated_answer),
+        vector_store_type: vector_store_type(pipeline.vector_store)
       }
     }
   end
@@ -116,7 +119,7 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
           pipeline.vector_store,
           query,
           top_k,
-          config_get(pipeline.config, :alpha, 0.5)
+          config_get(pipeline.config, :hybrid_alpha, config_get(pipeline.config, :alpha, 0.5))
         )
 
       _ ->
@@ -143,6 +146,15 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
   defp stringify(%{} = map), do: inspect(map, pretty: true)
   defp stringify(list) when is_list(list), do: inspect(list, pretty: true)
   defp stringify(value), do: to_string(value)
+
+  defp estimate_token_count(text), do: div(String.length(to_string(text)), 4)
+
+  defp vector_store_type(store) do
+    collection_info = VectorStore.get_collection_info(store)
+    get_any(collection_info, [:vector_store_type, "vector_store_type"]) || "unknown"
+  rescue
+    _exception -> "unknown"
+  end
 
   defp config_get(config, key, default) do
     Map.get(config, key, Map.get(config, to_string(key), default))
