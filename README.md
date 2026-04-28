@@ -28,13 +28,16 @@ end
 ## Start Here
 
 - [Getting Started](guides/getting_started.md)
+- [Guides](guides/index.md)
 - [Core API](guides/core_api.md)
 - [LLM and Adapters](guides/llm_and_adapters.md)
+- [Adapters](guides/adapters.md)
 - [Generic RAG and Vector Stores](guides/generic_rag.md)
 - [Optimization Workflow](guides/optimization_workflow.md)
 - [Optimize Anything](guides/optimize_anything.md)
 - [Confidence Adapter](guides/confidence_adapter.md)
 - [Observability](guides/observability.md)
+- [FAQ](guides/faq.md)
 - [Examples and Livebooks](guides/examples_and_livebooks.md)
 
 ## Quick Start

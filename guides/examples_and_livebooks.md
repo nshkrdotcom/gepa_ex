@@ -43,6 +43,7 @@ The scripts cover:
 - code execution
 - refiner support
 - tracking
+- confidence-aware structured classification
 - Generic RAG with local Qdrant, ReqLLM/Gemini embeddings, and ASM/Gemini inference
 
 The examples use `--adapter` for the LLM adapter family and `--provider` for the backend:
@@ -52,6 +53,7 @@ mix run examples/05_llm_adapters.exs -- --adapter req_llm --provider anthropic
 mix run examples/05_llm_adapters.exs -- --adapter asm --provider gemini --lane core
 docker compose up -d qdrant
 mix run examples/17_qdrant_rag.exs -- --simple
+mix run examples/18_confidence_adapter.exs -- --simple
 ```
 
 Task adapters in the examples are still GEPA-owned modules, usually `GEPA.Adapters.Basic` or a small custom `GEPA.Adapter` implementation inside the script.
