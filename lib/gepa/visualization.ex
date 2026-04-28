@@ -61,15 +61,13 @@ defmodule GEPA.Visualization do
     node_lines =
       candidates
       |> Enum.with_index()
-      |> Enum.map(fn {candidate, idx} ->
+      |> Enum.map(fn {_candidate, idx} ->
         score = Enum.at(val_scores, idx, 0.0)
-        parent_ids = parents_for(parents, idx)
         role = node_role(idx, best_idx, dominator_ids)
         color = node_color(role)
         label = "#{idx}\\n(#{format_score(score, 2)})"
-        tooltip = tooltip_for(idx, score, parent_ids, candidate, role)
 
-        "    #{idx} [label=\"#{escape_dot(label)}\", fillcolor=#{color}, tooltip=\"#{escape_dot(tooltip)}\"] ;"
+        "    #{idx} [label=\"#{escape_dot(label)}\", fillcolor=#{color}, tooltip=\" \"] ;"
       end)
 
     edge_lines =
@@ -303,25 +301,6 @@ defmodule GEPA.Visualization do
   defp role_label(:pareto), do: "Pareto Front"
   defp role_label(:seed), do: "Seed"
   defp role_label(_role), do: ""
-
-  defp tooltip_for(idx, score, parents, candidate, role) do
-    role = role_label(role)
-
-    base = [
-      "Candidate #{idx}",
-      "Val Score: #{format_score(score, 4)}",
-      "Parent(s): #{parent_label(parents)}"
-    ]
-
-    base = if role == "", do: base, else: base ++ ["Role: #{role}"]
-
-    component_lines =
-      candidate
-      |> sorted_candidate()
-      |> Enum.flat_map(fn {name, text} -> ["", "--- #{name} ---", to_string(text)] end)
-
-    Enum.join(base ++ component_lines, "\n")
-  end
 
   defp parent_label(parents) do
     parents = Enum.reject(List.wrap(parents), &is_nil/1)

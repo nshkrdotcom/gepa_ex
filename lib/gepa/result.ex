@@ -172,6 +172,18 @@ defmodule GEPA.Result do
     Enum.max(scores)
   end
 
+  @doc "Generate Graphviz DOT for this result's candidate lineage."
+  @spec candidate_tree_dot(t()) :: String.t()
+  def candidate_tree_dot(%__MODULE__{} = result) do
+    GEPA.Visualization.candidate_tree_dot(result)
+  end
+
+  @doc "Generate a self-contained HTML visualization for this result's candidate lineage."
+  @spec candidate_tree_html(t()) :: String.t()
+  def candidate_tree_html(%__MODULE__{} = result) do
+    GEPA.Visualization.candidate_tree_html(result)
+  end
+
   defp dict_get(data, key, default \\ nil) do
     Map.get(data, Atom.to_string(key), Map.get(data, key, default))
   end
