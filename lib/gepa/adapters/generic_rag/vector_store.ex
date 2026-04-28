@@ -16,11 +16,11 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore do
 
   @doc "Perform a hybrid search. Defaults to similarity search."
   @spec hybrid_search(term(), String.t(), pos_integer(), float()) :: [document()]
-  def hybrid_search(store, query, k \\ 5, _alpha \\ 0.5) do
+  def hybrid_search(store, query, k \\ 5, alpha \\ 0.5) do
     module = adapter_module(store)
 
     if module != nil and function_exported?(module, :hybrid_search, 4) do
-      module.hybrid_search(store, query, k, 0.5)
+      module.hybrid_search(store, query, k, alpha)
     else
       similarity_search(store, query, k, nil)
     end
@@ -96,7 +96,8 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore.InMemory do
     %{
       "name" => store.collection_name,
       "document_count" => length(store.documents),
-      "vector_store_type" => "in_memory"
+      "vector_store_type" => "in_memory",
+      "embedding_dimension" => 384
     }
   end
 
@@ -107,9 +108,35 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore.InMemory do
     metadata = metadata(doc)
 
     Enum.all?(filters, fn {key, value} ->
-      Map.get(metadata, key) == value or Map.get(metadata, to_string(key)) == value
+      case fetch_metadata(metadata, key) do
+        {:ok, actual} -> filter_value_matches?(actual, value)
+        :error -> false
+      end
     end)
   end
+
+  defp fetch_metadata(metadata, key) do
+    case Enum.find(metadata, fn {metadata_key, _value} ->
+           metadata_key == key or to_string(metadata_key) == to_string(key)
+         end) do
+      {_metadata_key, value} -> {:ok, value}
+      nil -> :error
+    end
+  end
+
+  defp filter_value_matches?(actual, %{} = operators) do
+    Enum.all?(operators, fn
+      {op, expected} when op in ["$gt", :"$gt"] -> actual > expected
+      {op, expected} when op in ["$lt", :"$lt"] -> actual < expected
+      {op, expected} when op in ["$gte", :"$gte"] -> actual >= expected
+      {op, expected} when op in ["$lte", :"$lte"] -> actual <= expected
+      {op, expected} when op in ["$ne", :"$ne"] -> actual != expected
+      {op, expected} when op in ["$in", :"$in"] -> actual in List.wrap(expected)
+      {_op, _expected} -> false
+    end)
+  end
+
+  defp filter_value_matches?(actual, expected), do: actual == expected
 
   defp content(doc), do: Map.get(doc, :content) || Map.get(doc, "content") || ""
   defp metadata(doc), do: Map.get(doc, :metadata) || Map.get(doc, "metadata") || %{}
