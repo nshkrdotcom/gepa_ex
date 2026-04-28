@@ -277,8 +277,14 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
 
   defp request_prompt!(%Request{} = request) do
     case Request.prompt(request) do
-      prompt when is_binary(prompt) -> prompt
-      other -> raise ArgumentError, "ASM adapter requires a string prompt, got: #{inspect(other)}"
+      prompt when is_binary(prompt) ->
+        prompt
+
+      messages when is_list(messages) ->
+        Request.to_text(messages)
+
+      other ->
+        raise ArgumentError, "ASM adapter requires a string prompt, got: #{inspect(other)}"
     end
   end
 

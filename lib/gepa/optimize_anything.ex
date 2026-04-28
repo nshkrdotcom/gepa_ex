@@ -3,6 +3,7 @@ defmodule GEPA.OptimizeAnything.EngineConfig do
 
   defstruct max_metric_calls: 20,
             max_candidate_proposals: nil,
+            max_reflection_cost: nil,
             reflection_minibatch_size: 3,
             num_parallel_proposals: 1,
             max_iterations: 1000,
@@ -14,6 +15,13 @@ defmodule GEPA.OptimizeAnything.EngineConfig do
             track_best_outputs: true,
             best_example_evals_k: 30,
             max_workers: nil,
+            parallel: true,
+            capture_stdio: false,
+            use_cloudpickle: false,
+            display_progress_bar: false,
+            candidate_selection_strategy: nil,
+            val_evaluation_policy: nil,
+            acceptance_criterion: nil,
             frontier_type: :instance,
             stop_conditions: nil
 
@@ -27,11 +35,16 @@ defmodule GEPA.OptimizeAnything.ReflectionConfig do
   @moduledoc "Reflection options for `GEPA.OptimizeAnything`."
 
   defstruct reflection_lm: nil,
+            reflection_lm_kwargs: nil,
             proposal_template: nil,
+            reflection_prompt_template: nil,
             custom_candidate_proposer: nil,
             structured_output: false,
             perfect_score: 1.0,
-            skip_perfect_score: true
+            skip_perfect_score: true,
+            reflection_minibatch_size: nil,
+            batch_sampler: nil,
+            module_selector: nil
 
   @type t :: %__MODULE__{}
 
@@ -83,7 +96,19 @@ end
 defmodule GEPA.OptimizeAnything.TrackingConfig do
   @moduledoc "Tracking options for `GEPA.OptimizeAnything`."
 
-  defstruct tracker: nil, key_prefix: nil, attach_existing: false
+  defstruct tracker: nil,
+            key_prefix: nil,
+            attach_existing: false,
+            logger: nil,
+            use_wandb: false,
+            wandb_api_key: nil,
+            wandb_init_kwargs: nil,
+            wandb_attach_existing: false,
+            wandb_step_metric: nil,
+            use_mlflow: false,
+            mlflow_tracking_uri: nil,
+            mlflow_experiment_name: nil,
+            mlflow_attach_existing: false
 
   @type t :: %__MODULE__{}
 
@@ -155,7 +180,7 @@ defmodule GEPA.OptimizeAnything.Config do
   defp normalize_nested(opts, key, module) do
     case Map.get(opts, key) do
       nil -> module.new()
-      %^module{} = value -> value
+      %{__struct__: ^module} = value -> value
       value when is_list(value) or is_map(value) -> module.new(value)
     end
   end
@@ -348,6 +373,7 @@ defmodule GEPA.OptimizeAnything.EvaluatorWrapper do
     end)
   end
 
+  defp stringify_value(%GEPA.Image{} = image), do: image
   defp stringify_value(%{} = map), do: stringify_keys(map)
   defp stringify_value(value), do: value
 
@@ -865,6 +891,7 @@ defmodule GEPA.OptimizeAnything.Adapter do
     Map.new(map, fn {key, value} -> {to_string(key), stringify_value(value)} end)
   end
 
+  defp stringify_value(%GEPA.Image{} = image), do: image
   defp stringify_value(%{} = map), do: stringify_keys(map)
   defp stringify_value(value), do: value
 end
@@ -879,6 +906,7 @@ defmodule GEPA.OptimizeAnything do
   and the regular GEPA optimizer.
   """
 
+  alias GEPA.LLM.Mock, as: LLMMock
   alias GEPA.OptimizeAnything.{Adapter, Config, LogContext}
 
   @str_candidate_key "current_candidate"
@@ -921,60 +949,12 @@ defmodule GEPA.OptimizeAnything do
   def optimize_anything(opts), do: opts |> Config.new() |> run()
 
   defp run(%Config{} = config) do
+    config = resolve_runtime_config!(config)
+
     with :ok <- validate!(config),
          {:ok, seed_candidate, string_candidate?} <- seed_candidate(config) do
-      dataset = normalize_dataset(config.dataset)
-      valset = normalize_dataset(config.valset || config.dataset)
-      cache_mode = cache_mode(config)
       seed_candidate = maybe_inject_refiner_prompt(seed_candidate, config)
-
-      adapter =
-        Adapter.new(
-          evaluator: config.evaluator,
-          objective: config.objective,
-          background: config.background,
-          cache_mode: cache_mode,
-          cache_dir: cache_dir(config),
-          parallelism: config.engine.max_workers || System.schedulers_online(),
-          refiner_config: config.refiner,
-          raise_on_exception: config.engine.raise_on_exception,
-          str_candidate_key: if(string_candidate?, do: @str_candidate_key),
-          best_example_evals_k: config.engine.best_example_evals_k
-        )
-
-      opts =
-        [
-          seed_candidate: seed_candidate,
-          trainset: dataset,
-          valset: valset,
-          adapter: adapter,
-          max_metric_calls: config.engine.max_metric_calls,
-          max_candidate_proposals: config.engine.max_candidate_proposals,
-          max_iterations: config.engine.max_iterations,
-          num_parallel_proposals:
-            resolve_num_parallel_proposals(
-              config.engine.num_parallel_proposals,
-              config.engine.max_workers || System.schedulers_online(),
-              config.engine.reflection_minibatch_size || 1
-            ),
-          reflection_minibatch_size: config.engine.reflection_minibatch_size,
-          run_dir: config.engine.run_dir,
-          cache_evaluation: config.engine.cache_evaluation in [true, :memory],
-          raise_on_exception: config.engine.raise_on_exception,
-          track_best_outputs: config.engine.track_best_outputs,
-          frontier_type: config.engine.frontier_type,
-          reflection_llm: config.reflection.reflection_lm,
-          proposal_template: config.reflection.proposal_template,
-          structured_output: config.reflection.structured_output,
-          custom_candidate_proposer: config.reflection.custom_candidate_proposer,
-          skip_perfect_score: config.reflection.skip_perfect_score,
-          perfect_score: config.reflection.perfect_score,
-          use_merge: config.merge.use_merge,
-          max_merge_invocations: config.merge.max_merge_invocations,
-          merge_val_overlap_floor: config.merge.merge_val_overlap_floor,
-          tracker: config.tracking.tracker
-        ]
-        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      opts = build_optimize_opts(config, seed_candidate, string_candidate?)
 
       case GEPA.optimize(opts) do
         {:ok, result} when string_candidate? -> {:ok, unwrap_string_result(result)}
@@ -985,11 +965,214 @@ defmodule GEPA.OptimizeAnything do
     exception -> {:error, exception}
   end
 
-  defp validate!(%Config{evaluator: evaluator}) when not is_function(evaluator) do
-    raise ArgumentError, "evaluator must be a function"
+  defp build_optimize_opts(config, seed_candidate, string_candidate?) do
+    dataset = normalize_dataset(config.dataset)
+    valset = normalize_dataset(config.valset || config.dataset)
+    cache_mode = cache_mode(config)
+    workers = config.engine.max_workers || System.schedulers_online()
+
+    reflection_minibatch_size =
+      config.reflection.reflection_minibatch_size ||
+        config.engine.reflection_minibatch_size ||
+        3
+
+    adapter =
+      Adapter.new(
+        evaluator: config.evaluator,
+        objective: config.objective,
+        background: config.background,
+        cache_mode: cache_mode,
+        cache_dir: cache_dir(config),
+        parallelism: workers,
+        refiner_config: config.refiner,
+        raise_on_exception: config.engine.raise_on_exception,
+        str_candidate_key: if(string_candidate?, do: @str_candidate_key),
+        best_example_evals_k: config.engine.best_example_evals_k
+      )
+
+    [
+      seed_candidate: seed_candidate,
+      trainset: dataset,
+      valset: valset,
+      adapter: adapter,
+      max_metric_calls: config.engine.max_metric_calls,
+      max_candidate_proposals: config.engine.max_candidate_proposals,
+      max_reflection_cost: config.engine.max_reflection_cost,
+      max_iterations: config.engine.max_iterations,
+      num_parallel_proposals:
+        resolve_num_parallel_proposals(
+          config.engine.num_parallel_proposals,
+          workers,
+          reflection_minibatch_size || 1
+        ),
+      reflection_minibatch_size: reflection_minibatch_size,
+      run_dir: config.engine.run_dir,
+      cache_evaluation: config.engine.cache_evaluation in [true, :memory],
+      raise_on_exception: config.engine.raise_on_exception,
+      track_best_outputs: config.engine.track_best_outputs,
+      frontier_type: config.engine.frontier_type,
+      candidate_selection_strategy: config.engine.candidate_selection_strategy,
+      val_evaluation_policy: config.engine.val_evaluation_policy,
+      acceptance_criterion: config.engine.acceptance_criterion,
+      reflection_llm: config.reflection.reflection_lm,
+      proposal_template: config.reflection.proposal_template,
+      structured_output: config.reflection.structured_output,
+      custom_candidate_proposer: config.reflection.custom_candidate_proposer,
+      batch_sampler: config.reflection.batch_sampler,
+      module_selector: config.reflection.module_selector,
+      skip_perfect_score: config.reflection.skip_perfect_score,
+      perfect_score: config.reflection.perfect_score,
+      use_merge: config.merge.use_merge,
+      max_merge_invocations: config.merge.max_merge_invocations,
+      merge_val_overlap_floor: config.merge.merge_val_overlap_floor,
+      tracker: config.tracking.tracker,
+      progress: config.engine.display_progress_bar
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  defp validate!(%Config{}), do: :ok
+  defp resolve_runtime_config!(%Config{} = config) do
+    reflection_lm =
+      resolve_reflection_lm(
+        config.reflection.reflection_lm,
+        config.reflection.reflection_lm_kwargs
+      )
+
+    proposal_template = resolve_reflection_prompt_template!(config)
+
+    reflection = %{
+      config.reflection
+      | reflection_lm: reflection_lm,
+        proposal_template: proposal_template || config.reflection.proposal_template
+    }
+
+    %{config | reflection: reflection}
+  end
+
+  defp resolve_reflection_lm(nil, _kwargs), do: nil
+  defp resolve_reflection_lm(%GEPA.LLM.Tracking{} = lm, _kwargs), do: lm
+
+  defp resolve_reflection_lm(lm, _kwargs) when is_function(lm, 1) or is_function(lm, 2),
+    do: GEPA.LLM.track(lm)
+
+  defp resolve_reflection_lm(model_name, kwargs) when is_binary(model_name) do
+    case String.split(model_name, "/", parts: 2) do
+      ["mock"] ->
+        LLMMock.new()
+
+      [provider, model] ->
+        provider
+        |> provider_atom()
+        |> GEPA.LLM.req_llm([{:model, model} | kwargs_to_keyword(kwargs)])
+
+      [model] ->
+        GEPA.LLM.req_llm(:openai, [{:model, model} | kwargs_to_keyword(kwargs)])
+    end
+  end
+
+  defp resolve_reflection_lm(lm, _kwargs), do: lm
+
+  defp provider_atom("openai"), do: :openai
+  defp provider_atom("google"), do: :gemini
+  defp provider_atom("gemini"), do: :gemini
+  defp provider_atom("anthropic"), do: :anthropic
+  defp provider_atom(_other), do: :openai
+
+  defp kwargs_to_keyword(nil), do: []
+  defp kwargs_to_keyword(kwargs) when is_list(kwargs), do: kwargs
+  defp kwargs_to_keyword(kwargs) when is_map(kwargs), do: Map.to_list(kwargs)
+  defp kwargs_to_keyword(_kwargs), do: []
+
+  defp resolve_reflection_prompt_template!(%Config{} = config) do
+    custom_template =
+      config.reflection.reflection_prompt_template || config.reflection.proposal_template
+
+    objective_or_background? = present?(config.objective) or present?(config.background)
+
+    cond do
+      present?(custom_template) and objective_or_background? ->
+        raise ArgumentError,
+              "cannot specify both objective/background and a custom reflection prompt template"
+
+      objective_or_background? ->
+        build_reflection_prompt_template(config.objective, config.background)
+
+      true ->
+        custom_template
+    end
+  end
+
+  defp build_reflection_prompt_template(objective, background) do
+    objective_section =
+      if present?(objective) do
+        "\n## Optimization Goal\n\n#{objective}\n"
+      else
+        ""
+      end
+
+    background_section =
+      if present?(background) do
+        "\n## Domain Context & Constraints\n\n#{background}\n"
+      else
+        ""
+      end
+
+    constraint_line =
+      if present?(background) do
+        "\n4. Adheres to all constraints and requirements from the domain context"
+      else
+        ""
+      end
+
+    """
+    You are an expert optimization assistant. Your task is to analyze evaluation feedback and propose an improved version of a system component.
+    #{objective_section}#{background_section}
+    ## Current Component
+
+    The component being optimized:
+
+    ```
+    <curr_param>
+    ```
+
+    ## Evaluation Results
+
+    Performance data from evaluating the current component across test cases:
+
+    ```
+    <side_info>
+    ```
+
+    ## Your Task
+
+    Analyze failure patterns, success patterns, root causes, and the optimization goal.
+
+    Based on your analysis, propose an improved version that:
+    1. Addresses identified failure patterns and root causes
+    2. Preserves successful behaviors from the current version
+    3. Makes meaningful improvements rather than superficial changes#{constraint_line}
+
+    ## Output Format
+
+    Provide ONLY the improved version within ``` blocks. The output must be a complete, drop-in replacement for the current component.
+    """
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
+
+  defp validate!(%Config{} = config) do
+    cond do
+      not is_function(config.evaluator) ->
+        raise ArgumentError, "evaluator must be a function"
+
+      is_nil(config.seed_candidate) and not present?(config.objective) ->
+        raise ArgumentError, "objective is required when seed_candidate is nil"
+
+      true ->
+        :ok
+    end
+  end
 
   defp seed_candidate(%Config{seed_candidate: nil} = config) do
     case config.reflection.reflection_lm do
@@ -1000,7 +1183,7 @@ defmodule GEPA.OptimizeAnything do
         prompt = seed_prompt(config)
 
         with {:ok, text} <- GEPA.LLM.complete(lm, prompt) do
-          {:ok, %{@str_candidate_key => String.trim(text)}, true}
+          {:ok, %{@str_candidate_key => extract_fenced_text(text)}, true}
         end
     end
   end
@@ -1015,6 +1198,23 @@ defmodule GEPA.OptimizeAnything do
 
   defp seed_candidate(%Config{seed_candidate: seed}) do
     {:ok, %{"candidate" => inspect(seed)}, true}
+  end
+
+  defp extract_fenced_text(text) when is_binary(text) do
+    trimmed = String.trim(text)
+    start = :binary.match(trimmed, "```")
+    finish = trimmed |> :binary.matches("```") |> List.last()
+
+    case {start, finish} do
+      {{s, 3}, {e, 3}} when s < e ->
+        trimmed
+        |> binary_part(s + 3, e - s - 3)
+        |> String.replace(~r/^\S*\n/, "", global: false)
+        |> String.trim()
+
+      _ ->
+        trimmed
+    end
   end
 
   defp seed_prompt(config) do

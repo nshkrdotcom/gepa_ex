@@ -475,6 +475,8 @@ defmodule GEPA.StopCondition.MaxReflectionCost do
   Stops when a reflection LLM's reported cumulative cost reaches a budget.
   """
 
+  alias GEPA.LLM.Tracking
+
   @behaviour GEPA.StopCondition
 
   defstruct [:max_cost, :reflection_lm]
@@ -492,7 +494,18 @@ defmodule GEPA.StopCondition.MaxReflectionCost do
     reflection_cost(reflection_lm) >= max_cost
   end
 
+  defp reflection_cost(%Tracking{} = reflection_lm),
+    do: Tracking.total_cost(reflection_lm)
+
   defp reflection_cost(%{total_cost: total_cost}) when is_number(total_cost), do: total_cost
+
+  defp reflection_cost(%module{} = reflection_lm) when is_atom(module) do
+    cond do
+      function_exported?(module, :total_cost, 1) -> module.total_cost(reflection_lm)
+      function_exported?(module, :total_cost, 0) -> module.total_cost()
+      true -> 0.0
+    end
+  end
 
   defp reflection_cost(reflection_lm) when is_atom(reflection_lm) do
     if Code.ensure_loaded?(reflection_lm) and function_exported?(reflection_lm, :total_cost, 0) do

@@ -25,6 +25,8 @@ defmodule GEPA.LLM.Mock do
       {:ok, response} = GEPA.LLM.complete(llm, "test prompt")
   """
 
+  alias GEPA.LLM.Request
+
   @behaviour GEPA.LLM
 
   defstruct [
@@ -35,7 +37,7 @@ defmodule GEPA.LLM.Mock do
 
   @type t :: %__MODULE__{
           responses: [String.t()] | nil,
-          response_fn: (String.t() -> String.t()) | nil,
+          response_fn: (GEPA.LLM.prompt() -> String.t()) | nil,
           call_count: non_neg_integer()
         }
 
@@ -69,8 +71,9 @@ defmodule GEPA.LLM.Mock do
   end
 
   @impl GEPA.LLM
-  @spec complete(t(), String.t(), keyword()) :: {:ok, String.t()}
-  def complete(%__MODULE__{} = llm, prompt, _opts \\ []) when is_binary(prompt) do
+  @spec complete(t(), GEPA.LLM.prompt(), keyword()) :: {:ok, String.t()}
+  def complete(%__MODULE__{} = llm, prompt, _opts \\ [])
+      when is_binary(prompt) or is_list(prompt) do
     response =
       cond do
         # Use provided response function
@@ -84,7 +87,9 @@ defmodule GEPA.LLM.Mock do
 
         # Default: generate improved instruction
         true ->
-          generate_improved_instruction(prompt)
+          prompt
+          |> prompt_to_text()
+          |> generate_improved_instruction()
       end
 
     {:ok, response}
@@ -128,6 +133,11 @@ defmodule GEPA.LLM.Mock do
   end
 
   ## Private Functions
+
+  defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_to_text(prompt) when is_list(prompt),
+    do: Request.to_text(prompt) || inspect(prompt)
 
   defp generate_improved_instruction(prompt) do
     # Extract current instruction if present in the prompt

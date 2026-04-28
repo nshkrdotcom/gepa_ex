@@ -2,49 +2,17 @@ defmodule GEPA.Proposer.InstructionProposal do
   @moduledoc """
   LLM-based instruction proposal with configurable templates.
 
-  This module generates improved instruction texts by prompting an LLM with
-  the current instruction and feedback from execution traces.
+  This module generates improved instruction texts by prompting an LLM with the
+  current instruction and feedback from execution traces. It supports the
+  upstream `<curr_param>` / `<side_info>` template contract and Elixir's legacy
+  `{component_name}` / `{current_instruction}` / `{reflective_dataset}` form.
 
-  ## Default Template
-
-  The default template includes placeholders for:
-  - `<curr_param>` - Current instruction text
-  - `<side_info>` - Formatted examples with feedback
-
-  ## Custom Templates
-
-      template = \"\"\"
-      Improve this prompt:
-
-      Current: <curr_param>
-
-      Examples: <side_info>
-
-      Better prompt:
-      \"\"\"
-
-      proposal = InstructionProposal.new(template: template, llm: llm)
-
-  ## Example
-
-      llm = GEPA.LLM.req_llm(:openai)
-      proposal = InstructionProposal.new(llm: llm)
-
-      dataset = [
-        %{
-          "Inputs" => %{"question" => "What is 2+2?"},
-          "Generated Outputs" => "5",
-          "Feedback" => "Wrong. Should be 4."
-        }
-      ]
-
-      {:ok, improved} = InstructionProposal.propose(
-        proposal,
-        "math_solver",
-        "Answer math questions",
-        dataset
-      )
+  Reflective dataset records may include `%GEPA.Image{}` values. Images are
+  rendered as `[IMAGE-N]` markers in the text and sent as multimodal content
+  parts to compatible reflection LLMs.
   """
+
+  alias GEPA.LLM.Request
 
   defstruct [
     :template,
@@ -54,11 +22,14 @@ defmodule GEPA.Proposer.InstructionProposal do
     structured_output: false
   ]
 
+  @type prompt :: String.t() | [map()]
+
   @type t :: %__MODULE__{
-          template: String.t(),
+          template: String.t() | %{String.t() => String.t()},
           llm: GEPA.LLM.t(),
           extract_fn: (String.t() -> String.t()) | nil,
-          format_fn: (list(map()) -> String.t()) | nil,
+          format_fn:
+            (list(map()) -> String.t() | {String.t(), [GEPA.Image.t()]} | prompt()) | nil,
           structured_output: boolean()
         }
 
@@ -85,34 +56,11 @@ defmodule GEPA.Proposer.InstructionProposal do
   Provide the new instructions within ``` blocks.
   """
 
-  @doc """
-  Returns the default template string.
-  """
+  @doc "Returns the default template string."
   @spec default_template() :: String.t()
   def default_template, do: @default_template
 
-  @doc """
-  Create a new instruction proposal configuration.
-
-  ## Options
-
-  - `:llm` - LLM configuration for proposals (required)
-  - `:template` - Custom prompt template or component/template map
-    (default: built-in template)
-  - `:extract_fn` - Function to extract instruction from LLM response
-  - `:format_fn` - Function to format reflective dataset
-
-  ## Examples
-
-      llm = GEPA.LLM.req_llm(:openai)
-      proposal = InstructionProposal.new(llm: llm)
-
-      # With custom template
-      proposal = InstructionProposal.new(
-        llm: llm,
-        template: "Improve {component_name}: {current_instruction}\\n{reflective_dataset}"
-      )
-  """
+  @doc "Create a new instruction proposal configuration."
   @spec new(keyword()) :: t()
   def new(opts) do
     llm = opts[:llm] || raise ArgumentError, "must provide :llm"
@@ -129,32 +77,8 @@ defmodule GEPA.Proposer.InstructionProposal do
     }
   end
 
-  @doc """
-  Propose new instruction text for a component.
-
-  ## Parameters
-
-  - `config` - InstructionProposal configuration
-  - `component_name` - Name of the component being optimized
-  - `current_instruction` - Current instruction text
-  - `dataset` - List of feedback records from reflective dataset
-
-  ## Returns
-
-  - `{:ok, new_instruction}` - Improved instruction text
-  - `{:error, reason}` - Error from LLM or processing
-
-  ## Example
-
-      {:ok, improved} = InstructionProposal.propose(
-        proposal,
-        "math_solver",
-        "Answer math questions",
-        [%{"Inputs" => %{}, "Generated Outputs" => "", "Feedback" => "improve"}]
-      )
-  """
-  @spec propose(t(), String.t(), String.t(), list(map())) ::
-          {:ok, String.t()} | {:error, term()}
+  @doc "Propose new instruction text for one component."
+  @spec propose(t(), String.t(), String.t(), list(map())) :: {:ok, String.t()} | {:error, term()}
   def propose(%__MODULE__{} = config, component_name, current_instruction, dataset) do
     case propose_with_metadata(config, component_name, current_instruction, dataset) do
       {:ok, new_instruction, _prompt, _raw_response} -> {:ok, new_instruction}
@@ -162,17 +86,15 @@ defmodule GEPA.Proposer.InstructionProposal do
     end
   end
 
-  @doc """
-  Propose new instruction text and return the rendered prompt plus raw LLM
-  output for tracking.
-  """
+  @doc "Propose new instruction text and retain rendered prompt plus raw LLM output."
   @spec propose_with_metadata(t(), String.t(), String.t(), list(map())) ::
-          {:ok, String.t(), String.t(), String.t()} | {:error, term()}
+          {:ok, String.t(), prompt(), String.t()} | {:error, term()}
   def propose_with_metadata(%__MODULE__{} = config, component_name, current_instruction, dataset) do
-    formatted_dataset = format_dataset(config, dataset)
+    {formatted_dataset, images} = format_dataset(config, dataset)
     template = template_for_component(config.template, component_name)
 
-    prompt = render_prompt(template, component_name, current_instruction, formatted_dataset)
+    prompt_text = render_prompt(template, component_name, current_instruction, formatted_dataset)
+    prompt = maybe_multimodal_prompt(prompt_text, images)
 
     if config.structured_output do
       case GEPA.LLM.complete_structured(config.llm, prompt) do
@@ -193,32 +115,8 @@ defmodule GEPA.Proposer.InstructionProposal do
     end
   end
 
-  @doc """
-  Propose new texts for multiple components.
-
-  ## Parameters
-
-  - `config` - InstructionProposal configuration
-  - `candidate` - Current candidate (map of component name -> text)
-  - `reflective_dataset` - Map of component name -> list of feedback records
-  - `components` - List of component names to propose for
-
-  ## Returns
-
-  - `{:ok, new_texts}` - Map of component name -> new instruction text
-  - `{:error, reason}` - Error details
-
-  ## Example
-
-      {:ok, new_texts} = InstructionProposal.propose_batch(
-        proposal,
-        %{"system_prompt" => "...", "user_template" => "..."},
-        %{"system_prompt" => [...], "user_template" => [...]},
-        ["system_prompt", "user_template"]
-      )
-  """
-  @spec propose_batch(t(), map(), map(), list(String.t())) ::
-          {:ok, map()} | {:error, term()}
+  @doc "Propose new texts for multiple components."
+  @spec propose_batch(t(), map(), map(), list(String.t())) :: {:ok, map()} | {:error, term()}
   def propose_batch(%__MODULE__{} = config, candidate, reflective_dataset, components) do
     case propose_batch_with_metadata(config, candidate, reflective_dataset, components) do
       {:ok, new_texts, _prompts, _raw_outputs} -> {:ok, new_texts}
@@ -226,10 +124,7 @@ defmodule GEPA.Proposer.InstructionProposal do
     end
   end
 
-  @doc """
-  Propose new text for multiple components and retain prompt/raw-output
-  metadata keyed by component.
-  """
+  @doc "Propose new text for multiple components and retain prompt/raw-output metadata."
   @spec propose_batch_with_metadata(t(), map(), map(), list(String.t())) ::
           {:ok, map(), map(), map()} | {:error, term()}
   def propose_batch_with_metadata(
@@ -268,8 +163,6 @@ defmodule GEPA.Proposer.InstructionProposal do
       {:error, {:partial_failure, errors}}
     end
   end
-
-  # Private functions
 
   defp validate_template!(template) when is_map(template) do
     Enum.each(template, fn {_component, component_template} ->
@@ -324,56 +217,97 @@ defmodule GEPA.Proposer.InstructionProposal do
     end
   end
 
-  defp format_dataset(%__MODULE__{format_fn: nil}, dataset) do
-    default_format_dataset(dataset)
-  end
+  defp format_dataset(%__MODULE__{format_fn: nil}, dataset), do: default_format_dataset(dataset)
 
   defp format_dataset(%__MODULE__{format_fn: format_fn}, dataset) do
-    format_fn.(dataset)
+    case format_fn.(dataset) do
+      {text, images} when is_binary(text) and is_list(images) ->
+        {text, images}
+
+      messages when is_list(messages) ->
+        {Request.to_text(messages) || inspect(messages), []}
+
+      text when is_binary(text) ->
+        {text, []}
+
+      other ->
+        {inspect(other), []}
+    end
   end
 
-  defp default_format_dataset([]) do
-    "_No examples available._"
-  end
+  defp default_format_dataset([]), do: {"_No examples available._", []}
 
   defp default_format_dataset(dataset) do
-    dataset
-    |> Enum.with_index(1)
-    |> Enum.map_join("\n---\n", fn {item, i} ->
-      inputs = item["Inputs"] || %{}
-      outputs = item["Generated Outputs"] || "N/A"
-      feedback = item["Feedback"] || "No feedback"
+    {blocks, images} =
+      dataset
+      |> Enum.with_index(1)
+      |> Enum.map_reduce([], fn {item, i}, image_acc ->
+        {body, image_acc} = render_value(item, image_acc, 2)
+        {"# Example #{i}\n#{body}", image_acc}
+      end)
 
-      inputs_json =
-        case Jason.encode(inputs, pretty: true) do
-          {:ok, json} -> json
-          {:error, _} -> inspect(inputs)
-        end
+    text = Enum.join(blocks, "\n\n---\n\n")
 
-      """
-      ### Example #{i}
+    text =
+      if images == [] do
+        text
+      else
+        "The evaluation data below includes visual content (#{length(images)} image(s)). Analyze both the text and images when suggesting improvements.\n\n" <>
+          text
+      end
 
-      **Inputs:**
-      ```json
-      #{inputs_json}
-      ```
+    {text, images}
+  end
 
-      **Generated Outputs:**
-      #{outputs}
+  defp render_value(%GEPA.Image{} = image, images, _level) do
+    images = images ++ [image]
+    {"[IMAGE-#{length(images)} — see visual content]\n\n", images}
+  end
 
-      **Feedback:**
-      #{feedback}
-      """
+  defp render_value(%{} = map, images, level) do
+    map
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.map_reduce(images, fn {key, value}, image_acc ->
+      {rendered, image_acc} = render_value(value, image_acc, min(level + 1, 6))
+      header = String.duplicate("#", level) <> " " <> to_string(key)
+      {header <> "\n" <> rendered, image_acc}
     end)
+    |> then(fn {parts, image_acc} -> {Enum.join(parts, "\n"), image_acc} end)
   end
 
-  defp extract_instruction(%__MODULE__{extract_fn: nil}, response) do
-    extract_fenced_instruction(response)
+  defp render_value(list, images, level) when is_list(list) do
+    list
+    |> Enum.with_index(1)
+    |> Enum.map_reduce(images, fn {value, idx}, image_acc ->
+      {rendered, image_acc} = render_value(value, image_acc, min(level + 1, 6))
+      header = String.duplicate("#", level) <> " Item #{idx}"
+      {header <> "\n" <> rendered, image_acc}
+    end)
+    |> then(fn {parts, image_acc} -> {Enum.join(parts, "\n"), image_acc} end)
   end
 
-  defp extract_instruction(%__MODULE__{extract_fn: extract_fn}, response) do
-    extract_fn.(response)
+  defp render_value(value, images, _level), do: {to_string_value(value) <> "\n\n", images}
+
+  defp to_string_value(value) when is_binary(value), do: String.trim(value)
+  defp to_string_value(value) when is_number(value) or is_boolean(value), do: to_string(value)
+  defp to_string_value(nil), do: "nil"
+  defp to_string_value(value), do: inspect(value)
+
+  defp maybe_multimodal_prompt(text, []), do: text
+
+  defp maybe_multimodal_prompt(text, images) do
+    content =
+      [%{"type" => "text", "text" => text}] ++
+        Enum.map(images, &GEPA.Image.to_openai_content_part/1)
+
+    [%{"role" => "user", "content" => content}]
   end
+
+  defp extract_instruction(%__MODULE__{extract_fn: nil}, response),
+    do: extract_fenced_instruction(response)
+
+  defp extract_instruction(%__MODULE__{extract_fn: extract_fn}, response),
+    do: extract_fn.(response)
 
   defp extract_structured_instruction(result) when is_map(result) do
     Map.get(result, "instruction") || Map.get(result, :instruction) || ""
