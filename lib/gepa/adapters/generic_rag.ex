@@ -48,7 +48,13 @@ defmodule GEPA.Adapters.GenericRAG do
 
     pipeline =
       get_any(opts, [:pipeline, "pipeline", :rag_pipeline, "rag_pipeline"]) ||
-        Pipeline.new(vector_store: vector_store, llm: llm, config: config)
+        Pipeline.new(
+          vector_store: vector_store,
+          llm: llm,
+          embedder:
+            get_any(opts, [:embedder, "embedder", :embedding_provider, "embedding_provider"]),
+          config: config
+        )
 
     %__MODULE__{
       vector_store: vector_store,

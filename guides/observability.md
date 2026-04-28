@@ -44,8 +44,15 @@ Callbacks are meant for local side effects that belong to the run itself, not fo
 
 - `GEPA.Tracking.NoOp`
 - `GEPA.Tracking.InMemory`
+- `GEPA.Tracking.WandB`
+- `GEPA.Tracking.MLflow`
 
 The tracking API expects scalar metrics, tables, and summary data. It intentionally does not try to render charts or notebooks.
+
+`WandB` and `MLflow` are dependency-free placeholders. They compile behind the
+same behavior and return `{:error, {:not_configured, backend}}` until a real
+external client is wired in. This keeps the core optimizer independent from
+hosted tracking SDKs while preserving the integration boundary.
 
 LLM provider usage and cost metadata are normalized onto `GEPA.LLM.Response` when the selected LLM adapter returns them. Hosted ReqLLM clients and ASM clients both expose cost-related metadata where their providers make it available; task adapters decide whether that data is included in run-level tracking.
 

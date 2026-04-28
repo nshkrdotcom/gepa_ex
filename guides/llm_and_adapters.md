@@ -74,17 +74,17 @@ Local CLI-backed providers go through `GEPA.LLM.Adapters.AgentSessionManager`.
 | Codex | `GEPA.LLM.agent(:codex, opts)` | `gpt-5.4-mini` | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
 | Codex Exec | `GEPA.LLM.agent(:codex_exec, opts)` | ASM default unless `:model` is provided | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
 | Claude | `GEPA.LLM.agent(:claude, opts)` | ASM default unless `:model` is provided | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
-| Gemini | `GEPA.LLM.agent(:gemini, opts)` | ASM default unless `:model` is provided | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
+| Gemini | `GEPA.LLM.agent(:gemini, opts)` | `gemini-3.1-flash-lite-preview` | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
 | Amp | `GEPA.LLM.agent(:amp, opts)` | ASM default unless `:model` is provided | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
 
 Example:
 
 ```elixir
 agent =
-  GEPA.LLM.agent(:codex,
+  GEPA.LLM.agent(:gemini,
     lane: :core,
     session: "gepa-reflection",
-    provider_opts: [model: "gpt-5.4"]
+    provider_opts: [model: "gemini-3.1-flash-lite-preview"]
   )
 
 {:ok, text} = GEPA.LLM.complete(agent, "Rewrite this prompt.")
@@ -98,6 +98,45 @@ Enum.each(stream, &IO.write/1)
 ```
 
 ASM structured output is intentionally unsupported until ASM exposes a native structured-output contract. `GEPA.LLM.complete_structured/3` fails closed with `{:unsupported_capability, :structured_output, context}` for ASM clients.
+
+## Embeddings
+
+Embeddings use a separate facade from text inference:
+
+```elixir
+embedder =
+  GEPA.Embeddings.ReqLLM.new!(
+    provider: :gemini,
+    model: "gemini-embedding-001"
+  )
+
+{:ok, vector} = GEPA.Embeddings.embed(embedder, "Index this document.")
+```
+
+The default Generic RAG integration uses ReqLLM/Gemini embeddings and
+Agent Session Manager/Gemini inference. Qdrant stores and searches vectors; it
+does not create embeddings.
+
+## Live Smoke Commands
+
+ReqLLM/Gemini text:
+
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --adapter req_llm \
+  --provider gemini \
+  --input "Reply with exactly: req_llm gemini ok"
+```
+
+Agent Session Manager/Gemini text:
+
+```bash
+mix run examples/05_llm_adapters.exs -- \
+  --adapter asm \
+  --provider gemini \
+  --model gemini-3.1-flash-lite-preview \
+  --input "Reply with exactly: asm gemini ok"
+```
 
 ## Compatibility APIs
 

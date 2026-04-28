@@ -10,6 +10,19 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreInterface do
     to: GEPA.Adapters.GenericRAG.VectorStore
 
   defdelegate get_collection_info(store), to: GEPA.Adapters.GenericRAG.VectorStore
+  defdelegate health_check(store), to: GEPA.Adapters.GenericRAG.VectorStore
+  defdelegate create_collection(store, opts \\ []), to: GEPA.Adapters.GenericRAG.VectorStore
+  defdelegate reset_collection(store, opts \\ []), to: GEPA.Adapters.GenericRAG.VectorStore
+
+  defdelegate upsert_documents(store, documents, opts \\ []),
+    to: GEPA.Adapters.GenericRAG.VectorStore
+
+  defdelegate delete_documents(store, ids, opts \\ []), to: GEPA.Adapters.GenericRAG.VectorStore
+  defdelegate embedding_dimension(store), to: GEPA.Adapters.GenericRAG.VectorStore
+  defdelegate supports_hybrid_search?(store), to: GEPA.Adapters.GenericRAG.VectorStore
+
+  defdelegate supports_metadata_filtering?(store),
+    to: GEPA.Adapters.GenericRAG.VectorStore
 end
 
 defmodule GEPA.Adapters.GenericRAG.RAGEvaluationMetrics do

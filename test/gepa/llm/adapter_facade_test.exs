@@ -199,6 +199,19 @@ defmodule GEPA.LLM.AdapterFacadeTest do
       refute MapSet.member?(client.capabilities, :structured_output)
     end
 
+    test "Gemini ASM client defaults to the integration-foundation model" do
+      client = GEPA.LLM.agent(:gemini, asm_module: FakeASM, lane: :core)
+
+      assert client.model == "gemini-3.1-flash-lite-preview"
+
+      request = Request.from_prompt("hello")
+      assert {:ok, response} = client.adapter.complete(client, request)
+      assert response.metadata.opts[:model] == "gemini-3.1-flash-lite-preview"
+
+      assert response.metadata.opts[:model_payload].resolved_model ==
+               "gemini-3.1-flash-lite-preview"
+    end
+
     test "complete/3 dispatches to ASM query and normalizes metadata" do
       client = GEPA.LLM.agent(:codex, asm_module: FakeASM, lane: :core)
 
@@ -218,6 +231,23 @@ defmodule GEPA.LLM.AdapterFacadeTest do
 
       assert {:ok, response} = client.adapter.complete(client, request)
       assert response.metadata.opts[:model] == "gpt-explicit"
+    end
+
+    test "ASM adapter filters unsupported portable generation options" do
+      client =
+        GEPA.LLM.agent(:gemini,
+          asm_module: FakeASM,
+          lane: :core,
+          provider_opts: [model: "gemini-3.1-flash-lite-preview", max_tokens: 20, timeout: 90_000]
+        )
+
+      request = Request.from_prompt("hello", max_tokens: 10, temperature: 0.1, timeout: 120_000)
+
+      assert {:ok, response} = client.adapter.complete(client, request)
+      refute Keyword.has_key?(response.metadata.opts, :max_tokens)
+      refute Keyword.has_key?(response.metadata.opts, :temperature)
+      refute Keyword.has_key?(response.metadata.opts, :top_p)
+      assert response.metadata.opts[:transport_timeout_ms] == 120_000
     end
 
     test "complete/3 passes named ASM sessions as session_id query options" do

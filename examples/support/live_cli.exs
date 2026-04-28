@@ -3,7 +3,7 @@ defmodule LiveCLI do
 
   @req_llm_providers [:openai, :gemini, :anthropic]
   @asm_providers [:codex, :codex_exec, :claude, :gemini, :amp]
-  @asm_default_models %{codex: "gpt-5.4-mini"}
+  @asm_default_models %{codex: "gpt-5.4-mini", gemini: "gemini-3.1-flash-lite-preview"}
   @strict [
     help: :boolean,
     simple: :boolean,
@@ -18,6 +18,10 @@ defmodule LiveCLI do
     input: :string,
     expected: :string,
     run_dir: :string,
+    qdrant_url: :string,
+    collection: :string,
+    embedding_model: :string,
+    embedding_dimensions: :integer,
     max_metric_calls: :integer,
     minibatch_size: :integer,
     temperature: :float,
@@ -112,7 +116,7 @@ defmodule LiveCLI do
       mix run #{script} -- --adapter req_llm --provider openai --api-key sk-...#{required_options}
       mix run #{script} -- --adapter req_llm --provider gemini --api-key ...#{required_options}
       mix run #{script} -- --adapter req_llm --provider anthropic --api-key ...#{required_options}
-      mix run #{script} -- --adapter asm --provider codex --lane core --session gepa_example#{required_options}
+      mix run #{script} -- --adapter asm --provider gemini --lane core --session gepa_example#{required_options}
 
     Provider Options:
       --simple                   Use defaults and built-in demo input/data where needed
@@ -137,6 +141,10 @@ defmodule LiveCLI do
       --input TEXT               User-provided live input for single-call examples
       --expected TEXT            User-provided expected text/label where required
       --run-dir PATH             State persistence directory where required
+      --qdrant-url URL           Qdrant HTTP endpoint for RAG examples
+      --collection NAME          Vector-store collection name for RAG examples
+      --embedding-model VALUE    ReqLLM embedding model for RAG examples
+      --embedding-dimensions N   Optional embedding dimension override
 
     ASM Options:
       --lane auto|core|sdk       ASM lane, defaults to auto when omitted
@@ -152,8 +160,8 @@ defmodule LiveCLI do
       --adapter req_llm --provider gemini     -> gemini-3.1-flash-lite-preview
       --adapter req_llm --provider anthropic  -> claude-haiku-4-5
       --adapter asm --provider codex          -> gpt-5.4-mini
+      --adapter asm --provider gemini         -> gemini-3.1-flash-lite-preview
       --adapter asm --provider claude         -> ASM/Claude default unless --model is provided
-      --adapter asm --provider gemini         -> ASM/Gemini default unless --model is provided
       --adapter asm --provider amp            -> ASM/Amp default unless --model is provided
     """
   end
@@ -263,7 +271,7 @@ defmodule LiveCLI do
   end
 
   defp apply_provider_default_for_adapter(opts, "asm", _env, _app_config) do
-    {:ok, Keyword.put(opts, :provider, "codex")}
+    {:ok, Keyword.put(opts, :provider, "gemini")}
   end
 
   defp apply_provider_default_for_adapter(_opts, adapter, _env, _app_config) do
@@ -361,7 +369,11 @@ defmodule LiveCLI do
          valset: valset,
          input: Keyword.get(opts, :input) || simple_input(simple?, example),
          expected: Keyword.get(opts, :expected) || simple_expected(simple?, example),
-         run_dir: Keyword.get(opts, :run_dir) || simple_run_dir(simple?, example)
+         run_dir: Keyword.get(opts, :run_dir) || simple_run_dir(simple?, example),
+         qdrant_url: Keyword.get(opts, :qdrant_url),
+         collection: Keyword.get(opts, :collection),
+         embedding_model: Keyword.get(opts, :embedding_model),
+         embedding_dimensions: Keyword.get(opts, :embedding_dimensions)
        }}
     end
   end

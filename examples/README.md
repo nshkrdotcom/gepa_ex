@@ -40,7 +40,7 @@ Explicit CLI options override these defaults:
 - `--api-key VALUE` for an explicit ReqLLM key override
 - `--model VALUE` for an explicit model override
 
-If `--adapter asm` is provided without `--provider`, the default ASM provider is `codex`.
+If `--adapter asm` is provided without `--provider`, the default ASM provider is `gemini`.
 
 Default models:
 
@@ -48,8 +48,8 @@ Default models:
 - `--adapter req_llm --provider gemini` uses `gemini-3.1-flash-lite-preview`
 - `--adapter req_llm --provider anthropic` uses `claude-haiku-4-5`
 - `--adapter asm --provider codex` uses `gpt-5.4-mini`
+- `--adapter asm --provider gemini` uses `gemini-3.1-flash-lite-preview`
 - `--adapter asm --provider claude` uses the ASM/Claude default unless `--model` is provided
-- `--adapter asm --provider gemini` uses the ASM/Gemini default unless `--model` is provided
 - `--adapter asm --provider amp` uses the ASM/Amp default unless `--model` is provided
 
 ## ReqLLM
@@ -143,6 +143,8 @@ mix run examples/12_tracking.exs -- --simple
 mix run examples/13_adrs_cloud_optimization.exs -- --simple
 mix run examples/14_arc_grid.exs -- --simple
 mix run examples/15_blackbox_search.exs -- --simple
+mix run examples/16_circle_packing.exs -- --simple
+mix run examples/17_qdrant_rag.exs -- --simple
 ```
 
 You can combine `--simple` with explicit backend selection:
@@ -349,6 +351,60 @@ Expected output includes `Blackbox Search Optimization Complete`, the best
 transformed score, and the best candidate code. If generated code fails, the
 feedback includes execution errors and budget details.
 
+### 16 Circle Packing
+
+Optimizes executable Elixir geometry code that packs circles inside the
+unit square. The evaluator runs candidate code with `GEPA.CodeExecution`,
+validates the returned circle list, scores valid layouts by the sum of radii,
+and feeds the best prior layout back into later candidates.
+
+```bash
+mix run examples/16_circle_packing.exs -- --simple
+```
+
+Candidate code must bind `pack = fn config, current_best_solution -> ... end`
+and return `%{circles: circles, all_scores: scores}`. Each circle may be
+`%{x: x, y: y, r: r}` or `[x, y, r]`. `--simple` uses four circles for a short
+live smoke; full mode uses twenty-six circles to match the upstream problem
+shape.
+
+Expected output includes `Circle Packing Optimization Complete`, the problem
+size, the best `sum_radii`, and the best candidate code. If generated code
+returns an invalid layout, evaluator feedback reports shape errors, boundary
+violations, negative radii, overlaps, stdout, and execution errors.
+
+### 17 Qdrant RAG
+
+Runs Generic RAG with a real local Qdrant container, real ReqLLM/Gemini
+embeddings, and real Agent Session Manager/Gemini inference. Qdrant stores and
+searches vectors; it does not create embeddings.
+
+Start Qdrant first:
+
+```bash
+docker compose up -d qdrant
+```
+
+Then run the live integration smoke:
+
+```bash
+mix run examples/17_qdrant_rag.exs -- --simple
+```
+
+The default inference path is `--adapter asm --provider gemini` using
+`gemini-3.1-flash-lite-preview`. The default embedding model is
+`google:gemini-embedding-001` through ReqLLM. Override local services with:
+
+```bash
+mix run examples/17_qdrant_rag.exs -- \
+  --adapter asm \
+  --provider gemini \
+  --qdrant-url http://localhost:6333 \
+  --collection gepa_ex_qdrant_rag \
+  --embedding-model gemini-embedding-001 \
+  --max-metric-calls 2
+```
+
 ## Run Everything
 
 `run_all.sh` runs every example.
@@ -409,3 +465,4 @@ Calling `examples/run_all.sh` without arguments prints the same help menu and do
 - Streaming failure: use `--adapter asm`; ReqLLM streaming is intentionally not exposed by this temporary facade.
 - Structured output failure with ASM: use ReqLLM for structured output until ASM has a native structured-output contract.
 - JSONL load failure: verify each line is valid JSON and uses the fields required by the selected example.
+- Qdrant RAG failure: run `docker compose up -d qdrant`, confirm `curl http://localhost:6333/collections`, and set `GEMINI_API_KEY` or `GOOGLE_API_KEY` for embeddings.

@@ -92,6 +92,10 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
   test "collection info is exposed" do
     store = InMemory.new(collection_name: "docs", documents: @docs)
     assert %{"name" => "docs", "document_count" => 2} = VectorStore.get_collection_info(store)
+    assert VectorStore.health_check(store) == :ok
+    assert VectorStore.embedding_dimension(store) == 384
+    assert VectorStore.supports_hybrid_search?(store)
+    assert VectorStore.supports_metadata_filtering?(store)
   end
 
   test "upstream fixture-style vector store supports keyword, vector, hybrid, and operator filters" do
@@ -172,6 +176,8 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
       assert {:similarity_search, 4} in callbacks
       assert {:vector_search, 4} in callbacks
       assert {:get_collection_info, 1} in callbacks
+      assert {:health_check, 1} in callbacks
+      assert {:upsert_documents, 3} in callbacks
     end
 
     test "vector store interface defines optional hybrid search facade" do
@@ -283,6 +289,9 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
       assert {:similarity_search, 4} in callbacks
       assert {:vector_search, 4} in callbacks
       assert {:get_collection_info, 1} in callbacks
+      assert {:create_collection, 2} in callbacks
+      assert {:reset_collection, 2} in callbacks
+      assert {:delete_documents, 3} in callbacks
     end
 
     test "optional hybrid search exists without being a required callback" do

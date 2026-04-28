@@ -35,7 +35,7 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
 
   @providers [:claude, :codex, :codex_exec, :gemini, :amp]
   @lanes [:auto, :core, :sdk]
-  @default_models %{codex: "gpt-5.4-mini"}
+  @default_models %{codex: "gpt-5.4-mini", gemini: "gemini-3.1-flash-lite-preview"}
 
   @spec new(keyword()) :: {:ok, Client.t()} | {:error, term()}
   def new(opts \\ []) do
@@ -68,7 +68,9 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
       provider_opts =
         opts
         |> Keyword.get(:provider_opts, [])
+        |> normalize_provider_opts()
         |> put_default_model(provider)
+        |> maybe_put_external_model_payload(provider)
 
       {:ok,
        %__MODULE__{
@@ -252,19 +254,33 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
   defp common_opts(%__MODULE__{} = state, %Request{} = request) do
     state.session_opts
     |> Keyword.merge(state.provider_opts)
-    |> Keyword.merge(
-      [
-        lane: state.lane,
-        model: request.model,
-        temperature: request.temperature,
-        max_tokens: request.max_tokens,
-        top_p: request.top_p,
-        stream_timeout_ms: request.timeout
-      ]
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    )
-    |> Keyword.merge(request.provider_opts)
+    |> Keyword.merge(request_opts(state, request))
+    |> Keyword.merge(normalize_provider_opts(request.provider_opts))
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp request_opts(%__MODULE__{} = state, %Request{} = request) do
+    [
+      lane: state.lane,
+      model: request.model,
+      transport_timeout_ms: request.timeout
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp normalize_provider_opts(provider_opts) do
+    provider_opts
+    |> Keyword.delete(:temperature)
+    |> Keyword.delete(:max_tokens)
+    |> Keyword.delete(:top_p)
+    |> rename_timeout()
+  end
+
+  defp rename_timeout(provider_opts) do
+    case Keyword.pop(provider_opts, :timeout) do
+      {nil, opts} -> opts
+      {timeout, opts} -> Keyword.put_new(opts, :transport_timeout_ms, timeout)
+    end
   end
 
   defp put_default_model(provider_opts, provider) do
@@ -274,6 +290,27 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
       {_model, default} -> Keyword.put(provider_opts, :model, default)
     end
   end
+
+  defp maybe_put_external_model_payload(provider_opts, :gemini) do
+    case {Keyword.get(provider_opts, :model_payload), Keyword.get(provider_opts, :model)} do
+      {payload, _model} when is_map(payload) ->
+        provider_opts
+
+      {_payload, model} when is_binary(model) and model != "" ->
+        Keyword.put(provider_opts, :model_payload, %{
+          provider: :gemini,
+          requested_model: model,
+          resolved_model: model,
+          resolution_source: :explicit,
+          model_source: :external
+        })
+
+      _other ->
+        provider_opts
+    end
+  end
+
+  defp maybe_put_external_model_payload(provider_opts, _provider), do: provider_opts
 
   defp request_prompt!(%Request{} = request) do
     case Request.prompt(request) do

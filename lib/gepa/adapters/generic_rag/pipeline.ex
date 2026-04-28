@@ -12,6 +12,7 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
     :vector_store,
     :llm,
     :llm_client,
+    :embedder,
     :embedding_model,
     :embedding_function,
     config: %{}
@@ -21,8 +22,9 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
           vector_store: term(),
           llm: term(),
           llm_client: term(),
+          embedder: GEPA.Embeddings.provider() | nil,
           embedding_model: String.t(),
-          embedding_function: (String.t() -> [number()]),
+          embedding_function: (String.t() -> [number()]) | nil,
           config: map()
         }
 
@@ -46,6 +48,7 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
       vector_store: fetch_any!(opts, [:vector_store, "vector_store"]),
       llm: llm,
       llm_client: llm,
+      embedder: get_any(opts, [:embedder, "embedder", :embedding_provider, "embedding_provider"]),
       embedding_model:
         get_any(opts, [:embedding_model, "embedding_model"]) || "text-embedding-3-small",
       embedding_function:
@@ -172,21 +175,24 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
     filters =
       get_any(example, [:filters, "filters"]) || config_get(pipeline.config, :filters, nil)
 
-    case to_string(strategy) do
-      "vector" ->
-        VectorStore.vector_search(pipeline.vector_store, embed(pipeline, query), top_k, filters)
+    result =
+      case to_string(strategy) do
+        "vector" ->
+          VectorStore.vector_search(pipeline.vector_store, embed(pipeline, query), top_k, filters)
 
-      "hybrid" ->
-        VectorStore.hybrid_search(
-          pipeline.vector_store,
-          query,
-          top_k,
-          config_get(pipeline.config, :hybrid_alpha, config_get(pipeline.config, :alpha, 0.5))
-        )
+        "hybrid" ->
+          VectorStore.hybrid_search(
+            pipeline.vector_store,
+            query,
+            top_k,
+            config_get(pipeline.config, :hybrid_alpha, config_get(pipeline.config, :alpha, 0.5))
+          )
 
-      _ ->
-        VectorStore.similarity_search(pipeline.vector_store, query, top_k, filters)
-    end
+        _ ->
+          VectorStore.similarity_search(pipeline.vector_store, query, top_k, filters)
+      end
+
+    unwrap_search_result!(result)
   end
 
   defp reformulate_query(_pipeline, query, prompt, _metadata)
@@ -240,14 +246,24 @@ defmodule GEPA.Adapters.GenericRAG.Pipeline do
     end
   end
 
+  defp embed(%__MODULE__{embedder: embedder}, query) when not is_nil(embedder) do
+    GEPA.Embeddings.embed!(embedder, to_string(query))
+  end
+
   defp embed(%__MODULE__{embedding_function: embedding_function}, query)
        when is_function(embedding_function, 1) do
     embedding_function.(to_string(query))
-  rescue
-    _exception -> default_embedding_function(to_string(query))
   end
 
   defp embed(_pipeline, query), do: default_embedding_function(to_string(query))
+
+  defp unwrap_search_result!({:ok, docs}) when is_list(docs), do: docs
+
+  defp unwrap_search_result!({:error, reason}) do
+    raise RuntimeError, "vector store search failed: #{inspect(reason)}"
+  end
+
+  defp unwrap_search_result!(docs) when is_list(docs), do: docs
 
   defp non_empty_or(value, fallback) do
     value = to_string(value)

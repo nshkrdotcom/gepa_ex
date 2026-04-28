@@ -11,11 +11,11 @@ defmodule GEPA.Tracking do
 
   @type tracker :: module() | struct() | nil
 
-  @callback start(term()) :: :ok | {:ok, term()}
-  @callback log_metrics(term(), map(), keyword()) :: :ok
-  @callback log_table(term(), String.t(), [map()], keyword()) :: :ok
-  @callback log_summary(term(), map()) :: :ok
-  @callback finish(term()) :: :ok
+  @callback start(term()) :: :ok | {:ok, term()} | {:error, term()}
+  @callback log_metrics(term(), map(), keyword()) :: :ok | {:error, term()}
+  @callback log_table(term(), String.t(), [map()], keyword()) :: :ok | {:error, term()}
+  @callback log_summary(term(), map()) :: :ok | {:error, term()}
+  @callback finish(term()) :: :ok | {:error, term()}
 
   @optional_callbacks start: 1, log_table: 4, finish: 1
 

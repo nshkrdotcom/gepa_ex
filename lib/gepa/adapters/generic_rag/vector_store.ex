@@ -3,19 +3,38 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore do
   Behaviour for vector-store backends used by `GEPA.Adapters.GenericRAG`.
 
   Documents are maps with at least `:content`/`"content"` and optional
-  `:metadata`/`"metadata"`. Backends may be real vector stores or in-memory
-  test doubles.
+  `:metadata`/`"metadata"`. Search callbacks may return either a list directly
+  or `{:ok, list}`/`{:error, reason}` when the backend performs external IO.
   """
 
   @type document :: %{optional(String.t() | atom()) => term()}
   @type filters :: map() | nil
+  @type search_result :: [document()] | {:ok, [document()]} | {:error, term()}
 
-  @callback similarity_search(term(), String.t(), pos_integer(), filters()) :: [document()]
-  @callback vector_search(term(), [number()], pos_integer(), filters()) :: [document()]
+  @callback similarity_search(term(), String.t(), pos_integer(), filters()) :: search_result()
+  @callback vector_search(term(), [number()], pos_integer(), filters()) :: search_result()
   @callback get_collection_info(term()) :: map()
+  @callback health_check(term()) :: :ok | {:error, term()}
+  @callback create_collection(term(), keyword() | map()) :: :ok | {:error, term()}
+  @callback reset_collection(term(), keyword() | map()) :: :ok | {:error, term()}
+  @callback upsert_documents(term(), [document()], keyword() | map()) ::
+              {:ok, [term()]} | {:error, term()}
+  @callback delete_documents(term(), [term()], keyword() | map()) :: :ok | {:error, term()}
+  @callback embedding_dimension(term()) :: pos_integer() | nil
+  @callback supports_hybrid_search?(term()) :: boolean()
+  @callback supports_metadata_filtering?(term()) :: boolean()
+
+  @optional_callbacks health_check: 1,
+                      create_collection: 2,
+                      reset_collection: 2,
+                      upsert_documents: 3,
+                      delete_documents: 3,
+                      embedding_dimension: 1,
+                      supports_hybrid_search?: 1,
+                      supports_metadata_filtering?: 1
 
   @doc "Perform a hybrid search. Defaults to similarity search."
-  @spec hybrid_search(term(), String.t(), pos_integer(), float()) :: [document()]
+  @spec hybrid_search(term(), String.t(), pos_integer(), float()) :: search_result()
   def hybrid_search(store, query, k \\ 5, alpha \\ 0.5) do
     module = adapter_module(store)
 
@@ -26,13 +45,13 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore do
     end
   end
 
-  @spec similarity_search(term(), String.t(), pos_integer(), filters()) :: [document()]
+  @spec similarity_search(term(), String.t(), pos_integer(), filters()) :: search_result()
   def similarity_search(store, query, k \\ 5, filters \\ nil) do
     module = adapter_module(store)
     module.similarity_search(store, query, k, filters)
   end
 
-  @spec vector_search(term(), [number()], pos_integer(), filters()) :: [document()]
+  @spec vector_search(term(), [number()], pos_integer(), filters()) :: search_result()
   def vector_search(store, query_vector, k \\ 5, filters \\ nil) do
     module = adapter_module(store)
     module.vector_search(store, query_vector, k, filters)
@@ -40,6 +59,73 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore do
 
   @spec get_collection_info(term()) :: map()
   def get_collection_info(store), do: adapter_module(store).get_collection_info(store)
+
+  @spec health_check(term()) :: :ok | {:error, term()}
+  def health_check(store) do
+    call_optional(store, :health_check, [store], :ok)
+  end
+
+  @spec create_collection(term(), keyword() | map()) :: :ok | {:error, term()}
+  def create_collection(store, opts \\ []) do
+    call_optional(store, :create_collection, [store, opts], {:error, :unsupported})
+  end
+
+  @spec reset_collection(term(), keyword() | map()) :: :ok | {:error, term()}
+  def reset_collection(store, opts \\ []) do
+    call_optional(store, :reset_collection, [store, opts], {:error, :unsupported})
+  end
+
+  @spec upsert_documents(term(), [document()], keyword() | map()) ::
+          {:ok, [term()]} | {:error, term()}
+  def upsert_documents(store, documents, opts \\ []) do
+    call_optional(store, :upsert_documents, [store, documents, opts], {:error, :unsupported})
+  end
+
+  @spec delete_documents(term(), [term()], keyword() | map()) :: :ok | {:error, term()}
+  def delete_documents(store, ids, opts \\ []) do
+    call_optional(store, :delete_documents, [store, ids, opts], {:error, :unsupported})
+  end
+
+  @spec embedding_dimension(term()) :: pos_integer() | nil
+  def embedding_dimension(store) do
+    case call_optional(store, :embedding_dimension, [store], nil) do
+      nil ->
+        store
+        |> get_collection_info()
+        |> dimension_from_collection_info()
+
+      dimension ->
+        dimension
+    end
+  rescue
+    _exception -> nil
+  end
+
+  @spec supports_hybrid_search?(term()) :: boolean()
+  def supports_hybrid_search?(store) do
+    call_optional(store, :supports_hybrid_search?, [store], false)
+  end
+
+  @spec supports_metadata_filtering?(term()) :: boolean()
+  def supports_metadata_filtering?(store) do
+    call_optional(store, :supports_metadata_filtering?, [store], false)
+  end
+
+  defp call_optional(store, function, args, default) do
+    module = adapter_module(store)
+
+    if module != nil and function_exported?(module, function, length(args)) do
+      apply(module, function, args)
+    else
+      default
+    end
+  end
+
+  defp dimension_from_collection_info(info) when is_map(info) do
+    Map.get(info, "embedding_dimension") || Map.get(info, :embedding_dimension)
+  end
+
+  defp dimension_from_collection_info(_info), do: nil
 
   defp adapter_module(%module{}), do: module
   defp adapter_module(module) when is_atom(module), do: module
@@ -90,6 +176,33 @@ defmodule GEPA.Adapters.GenericRAG.VectorStore.InMemory do
   def hybrid_search(%__MODULE__{} = store, query, k, _alpha) do
     similarity_search(store, query, k, nil)
   end
+
+  @impl true
+  def health_check(%__MODULE__{}), do: :ok
+
+  @impl true
+  def create_collection(%__MODULE__{}, _opts), do: :ok
+
+  @impl true
+  def reset_collection(%__MODULE__{}, _opts), do: :ok
+
+  @impl true
+  def upsert_documents(%__MODULE__{}, documents, _opts) do
+    ids = Enum.map(documents, &(Map.get(&1, :id) || Map.get(&1, "id")))
+    {:ok, ids}
+  end
+
+  @impl true
+  def delete_documents(%__MODULE__{}, _ids, _opts), do: :ok
+
+  @impl true
+  def embedding_dimension(%__MODULE__{}), do: 384
+
+  @impl true
+  def supports_hybrid_search?(%__MODULE__{}), do: true
+
+  @impl true
+  def supports_metadata_filtering?(%__MODULE__{}), do: true
 
   @impl true
   def get_collection_info(%__MODULE__{} = store) do

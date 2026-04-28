@@ -30,7 +30,7 @@ defmodule GEPA.Examples.LiveCLITest do
       assert help =~ "gemini-3.1-flash-lite-preview"
       assert help =~ "--adapter asm --provider codex          -> gpt-5.4-mini"
       assert help =~ "GEMINI_API_KEY"
-      assert help =~ "--adapter asm --provider codex"
+      assert help =~ "--adapter asm --provider gemini"
     end
 
     test "accepts the Mix argv separator before --help" do
@@ -243,6 +243,16 @@ defmodule GEPA.Examples.LiveCLITest do
       assert config.provider == :codex
       assert config.model == "gpt-5.4-mini"
       assert config.client.model == "gpt-5.4-mini"
+    end
+
+    test "simple ASM defaults to Gemini model without --provider" do
+      assert {:ok, config} =
+               LiveCLI.parse(["--simple", "--adapter", "asm"], no_env(@prompt_example))
+
+      assert config.adapter == :asm
+      assert config.provider == :gemini
+      assert config.model == "gemini-3.1-flash-lite-preview"
+      assert config.client.model == "gemini-3.1-flash-lite-preview"
     end
   end
 

@@ -22,7 +22,7 @@ Sensible Defaults:
 
   Explicit --adapter, --provider, --api-key, --model, data paths, and generation
   options always override defaults. If --adapter asm is provided without a
-  provider, the default ASM provider is codex.
+  provider, the default ASM provider is gemini.
 
 Fastest Live Smoke:
   examples/run_all.sh --simple
@@ -60,6 +60,10 @@ Data/Input Options:
   --persistence-val-jsonl PATH
   --run-dir PATH
   --smoke-input TEXT
+  --qdrant-url URL
+  --collection NAME
+  --embedding-model VALUE
+  --embedding-dimensions N
 
   Data/input options are required unless --simple is used. In --simple mode,
   explicit data/input paths still override the built-in demo prompts/data.
@@ -88,9 +92,15 @@ Default Models:
   --adapter req_llm --provider gemini     -> gemini-3.1-flash-lite-preview
   --adapter req_llm --provider anthropic  -> claude-haiku-4-5
   --adapter asm --provider codex          -> gpt-5.4-mini
+  --adapter asm --provider gemini         -> gemini-3.1-flash-lite-preview
   --adapter asm --provider claude         -> ASM/Claude default unless --model is provided
-  --adapter asm --provider gemini         -> ASM/Gemini default unless --model is provided
   --adapter asm --provider amp            -> ASM/Amp default unless --model is provided
+
+Qdrant RAG:
+  examples/17_qdrant_rag.exs requires a running local Qdrant service and
+  Gemini embeddings through ReqLLM:
+    docker compose up -d qdrant
+    GEMINI_API_KEY or GOOGLE_API_KEY must be set
 USAGE
 }
 
@@ -171,6 +181,10 @@ persistence_train_jsonl=""
 persistence_val_jsonl=""
 run_dir=""
 smoke_input=""
+qdrant_url=""
+collection=""
+embedding_model=""
+embedding_dimensions=""
 temperature=""
 max_tokens=""
 timeout=""
@@ -203,6 +217,10 @@ while [[ $# -gt 0 ]]; do
     --persistence-val-jsonl) persistence_val_jsonl="${2:-}"; shift 2 ;;
     --run-dir) run_dir="${2:-}"; shift 2 ;;
     --smoke-input) smoke_input="${2:-}"; shift 2 ;;
+    --qdrant-url) qdrant_url="${2:-}"; shift 2 ;;
+    --collection) collection="${2:-}"; shift 2 ;;
+    --embedding-model) embedding_model="${2:-}"; shift 2 ;;
+    --embedding-dimensions) embedding_dimensions="${2:-}"; shift 2 ;;
     --temperature) temperature="${2:-}"; shift 2 ;;
     --max-tokens) max_tokens="${2:-}"; shift 2 ;;
     --timeout) timeout="${2:-}"; shift 2 ;;
@@ -235,7 +253,7 @@ if has_value "$adapter" && ! has_value "$provider"; then
       fi
       ;;
     asm)
-      provider="codex"
+      provider="gemini"
       ;;
     *)
       errors+=("invalid --adapter ${adapter}; expected req_llm or asm")
@@ -273,6 +291,10 @@ esac
 
 if [[ "$adapter" == "asm" && "$provider" == "codex" && -z "$model" ]]; then
   model="gpt-5.4-mini"
+fi
+
+if [[ "$adapter" == "asm" && "$provider" == "gemini" && -z "$model" ]]; then
+  model="gemini-3.1-flash-lite-preview"
 fi
 
 if [[ "$simple" == "false" ]]; then
@@ -327,6 +349,21 @@ persistence_args=("${common_args[@]}")
 smoke_args=("${common_args[@]}")
 [[ -z "$smoke_input" ]] || smoke_args+=(--input "$smoke_input")
 
+qdrant_args=(--adapter asm --provider gemini --model gemini-3.1-flash-lite-preview)
+[[ "$simple" == "false" ]] || qdrant_args+=(--simple)
+[[ -z "$lane" ]] || qdrant_args+=(--lane "$lane")
+[[ -z "$session" ]] || qdrant_args+=(--session "$session")
+[[ -z "$temperature" ]] || qdrant_args+=(--temperature "$temperature")
+[[ -z "$max_tokens" ]] || qdrant_args+=(--max-tokens "$max_tokens")
+[[ -z "$timeout" ]] || qdrant_args+=(--timeout "$timeout")
+[[ -z "$top_p" ]] || qdrant_args+=(--top-p "$top_p")
+[[ -z "$max_metric_calls" ]] || qdrant_args+=(--max-metric-calls "$max_metric_calls")
+[[ -z "$minibatch_size" ]] || qdrant_args+=(--minibatch-size "$minibatch_size")
+[[ -z "$qdrant_url" ]] || qdrant_args+=(--qdrant-url "$qdrant_url")
+[[ -z "$collection" ]] || qdrant_args+=(--collection "$collection")
+[[ -z "$embedding_model" ]] || qdrant_args+=(--embedding-model "$embedding_model")
+[[ -z "$embedding_dimensions" ]] || qdrant_args+=(--embedding-dimensions "$embedding_dimensions")
+
 cat <<WARNING
 LIVE LLM CALL WARNING
 =====================
@@ -353,3 +390,5 @@ mix run examples/12_tracking.exs -- "${qa_args[@]}"
 mix run examples/13_adrs_cloud_optimization.exs -- "${common_args[@]}"
 mix run examples/14_arc_grid.exs -- "${common_args[@]}"
 mix run examples/15_blackbox_search.exs -- "${common_args[@]}"
+mix run examples/16_circle_packing.exs -- "${common_args[@]}"
+mix run examples/17_qdrant_rag.exs -- "${qdrant_args[@]}"

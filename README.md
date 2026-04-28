@@ -7,7 +7,7 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/gepa_ex.svg)](https://hex.pm/packages/gepa_ex)
 [![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
 [![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
-[![Tests](https://img.shields.io/badge/tests-329%2F329%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-920%2F920%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
 
@@ -30,8 +30,10 @@ end
 - [Getting Started](guides/getting_started.md)
 - [Core API](guides/core_api.md)
 - [LLM and Adapters](guides/llm_and_adapters.md)
+- [Generic RAG and Vector Stores](guides/generic_rag.md)
 - [Optimization Workflow](guides/optimization_workflow.md)
 - [Optimize Anything](guides/optimize_anything.md)
+- [Confidence Adapter](guides/confidence_adapter.md)
 - [Observability](guides/observability.md)
 - [Examples and Livebooks](guides/examples_and_livebooks.md)
 
@@ -58,7 +60,9 @@ For evaluator-driven tasks, use `GEPA.OptimizeAnything.optimize_anything/1` and 
 ## What Ships
 
 - Core optimization engine with Pareto fronts, state persistence, stop conditions, merge scheduling, and acceptance criteria
-- Adapter contract plus shipped adapters for Q&A, default chat-style tasks, ReqLLM, Agent Session Manager, and testing
+- Adapter contract plus shipped adapters for Q&A, default chat-style tasks, Generic RAG, confidence scoring, ReqLLM, Agent Session Manager, and testing
+- Embedding behavior with a ReqLLM-backed Gemini embedding provider
+- Generic RAG vector-store behavior with in-memory tests, real local Qdrant, and explicit stubs for pgvector, Weaviate, LanceDB, Chroma, and Milvus
 - LLM facade with structured output support, streaming, and provider normalization
 - Candidate proposal, batch sampling, and selection strategies including epsilon-greedy
 - Telemetry, callbacks, tracking, and terminal progress output
@@ -71,15 +75,16 @@ contracts, and live examples. Some upstream surfaces are represented as
 abstractions or deterministic local backends so users can plug in their own
 runtime without pulling extra infrastructure into the core package.
 
-| Surface | Current status | Expected gap after the current parity pass |
+| Surface | Current status | Remaining gap |
 | --- | --- | --- |
 | Core optimizer | Real implementation: Pareto frontiers, reflection, merge, persistence, callbacks, telemetry, and `optimize_anything` run in Elixir. | Continue tracking upstream semantics and edge cases; no GUI is planned. |
-| LLM adapters | Real normalized facade for ReqLLM and Agent Session Manager, plus test/mock adapters. | Provider coverage follows those libraries; upstream Python provider shims are not copied one-for-one. |
-| Generic RAG vector store | Abstraction plus deterministic `InMemory` backend for tests, examples, and local development. | No production vector DB client is bundled. Qdrant, pgvector, Pinecone, Chroma, Weaviate, etc. should be optional adapters built against the vector-store behavior. |
-| Generic RAG adapter | Headless adapter pipeline with retrieval/generation metrics and vector-store behavior. | No hosted document ingestion service, embedding service, or persistent vector index is included by default. |
-| MCP adapter | Adapter contract, static test client, and dependency-free stdio/SSE/streamable HTTP transport config structs. | No bundled MCP SDK/runtime process manager. Real MCP transports should be supplied by an external client implementing `GEPA.Adapters.MCP.Client`. |
-| Tracking integrations | Dependency-free experiment tracker and callback surface compatible with upstream-style events. | Hosted W&B/MLflow clients are not forced into the core package; external integrations can attach through callbacks/tracker behavior. |
-| Examples and guides | Intended to be live, headless, and adapter-backed as this parity work finishes. | Examples should avoid GUI assumptions and should state when they use local mocks, in-memory stores, or real provider credentials. |
+| LLM adapters | Real normalized facade for ReqLLM and Agent Session Manager. ASM/Gemini defaults to `gemini-3.1-flash-lite-preview`; ReqLLM/Gemini uses the same text model by default. | Provider coverage follows those libraries; upstream Python provider shims are not copied one-for-one. ASM structured output remains unsupported until ASM exposes that contract. |
+| Embeddings | Real `GEPA.Embeddings` behavior with `GEPA.Embeddings.ReqLLM`; default Gemini embedding model is `google:gemini-embedding-001`. | Other embedding providers can replace the behavior implementation later. Qdrant never creates embeddings. |
+| Generic RAG vector store | Real vector-store behavior, deterministic `InMemory` for tests, local Qdrant through Docker/HTTP, and explicit stubs for pgvector, Weaviate, LanceDB, Chroma, and Milvus. | Qdrant currently uses direct HTTP calls by design; a production client or larger vector subsystem can replace that module without changing Generic RAG call sites. |
+| Generic RAG adapter | Headless adapter pipeline with retrieval/generation metrics, injected embedder, and live Qdrant example using real embeddings plus real ASM/Gemini inference. | No hosted document-ingestion service is bundled. Non-Qdrant vector backends are stubs until implemented. |
+| MCP adapter | Existing static/config MCP code may remain, but MCP runtime, transports, live examples, and parity work are WONT BUILD for this line of work by 2026-04-28 user directive. | Reopen only if MCP is explicitly brought back into scope. |
+| Tracking integrations | Dependency-free tracker plus explicit W&B and MLflow stubs behind `GEPA.Tracking`. | Hosted W&B/MLflow clients are optional future work and should remain replaceable. |
+| Examples and guides | Live, headless, adapter-backed scripts and guides. Qdrant RAG requires Docker Qdrant plus Gemini embedding credentials. | Examples should keep using real backends only; deterministic providers stay in tests. |
 
 ## Examples and Livebooks
 

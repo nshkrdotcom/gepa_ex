@@ -36,6 +36,24 @@ defmodule GEPA.TrackingTest do
     assert snapshot.summaries != []
   end
 
+  test "external tracker stubs fail explicitly when not configured" do
+    wandb = GEPA.Tracking.WandB.new()
+    mlflow = GEPA.Tracking.MLflow.new()
+
+    assert {:error, {:not_configured, :wandb}} = GEPA.Tracking.WandB.start(wandb)
+    assert {:error, {:not_configured, :mlflow}} = GEPA.Tracking.MLflow.start(mlflow)
+    refute GEPA.Tracking.WandB.configured?(wandb)
+    refute GEPA.Tracking.MLflow.configured?(mlflow)
+  end
+
+  test "external tracker stubs do not crash optimizer dispatch" do
+    tracker = GEPA.Tracking.WandB.new()
+
+    assert :ok = GEPA.Tracking.start(tracker)
+    assert :ok = GEPA.Tracking.log_metrics(tracker, %{score: 1.0})
+    assert :ok = GEPA.Tracking.finish(tracker)
+  end
+
   defp custom_candidate_proposer do
     fn candidate, _reflective_dataset, components ->
       Map.new(components, fn component ->
