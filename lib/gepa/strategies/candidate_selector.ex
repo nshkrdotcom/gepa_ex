@@ -46,6 +46,8 @@ defmodule GEPA.Strategies.CandidateSelector.Pareto do
   @spec select(term(), GEPA.State.t(), :rand.state() | nil) ::
           {GEPA.Types.program_idx(), :rand.state()}
   def select(_selector, state, rand_state) do
+    rand_state = rand_state || :rand.seed(:exsss, {0, 0, 0})
+
     # Build scores map for Pareto utilities
     scores =
       state.prog_candidate_val_subscores

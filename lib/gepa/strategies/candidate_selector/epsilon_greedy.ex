@@ -33,7 +33,10 @@ defmodule GEPA.Strategies.CandidateSelector.EpsilonGreedy do
   def new(opts \\ []) do
     epsilon = normalize_probability(Keyword.get(opts, :epsilon, 0.1), :epsilon)
     epsilon_decay = normalize_probability(Keyword.get(opts, :epsilon_decay, 1.0), :epsilon_decay)
-    epsilon_min = normalize_probability(Keyword.get(opts, :epsilon_min, 0.01), :epsilon_min)
+    default_epsilon_min = min(0.01, epsilon)
+
+    epsilon_min =
+      normalize_probability(Keyword.get(opts, :epsilon_min, default_epsilon_min), :epsilon_min)
 
     %__MODULE__{
       epsilon: epsilon,
