@@ -929,6 +929,21 @@ defmodule GEPA.OptimizeAnything do
   4. Return the complete improved candidate
   """
 
+  @tracking_option_keys [
+    :key_prefix,
+    :attach_existing,
+    :logger,
+    :use_wandb,
+    :wandb_api_key,
+    :wandb_init_kwargs,
+    :wandb_attach_existing,
+    :wandb_step_metric,
+    :use_mlflow,
+    :mlflow_tracking_uri,
+    :mlflow_experiment_name,
+    :mlflow_attach_existing
+  ]
+
   @doc "Return the internal key used to wrap string candidates."
   @spec str_candidate_key() :: String.t()
   def str_candidate_key, do: @str_candidate_key
@@ -1045,11 +1060,35 @@ defmodule GEPA.OptimizeAnything do
       use_merge: config.merge.use_merge,
       max_merge_invocations: config.merge.max_merge_invocations,
       merge_val_overlap_floor: config.merge.merge_val_overlap_floor,
-      tracker: config.tracking.tracker,
+      tracker: build_tracker(config.tracking),
       progress: config.engine.display_progress_bar
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
+
+  defp build_tracker(%GEPA.OptimizeAnything.TrackingConfig{tracker: tracker})
+       when not is_nil(tracker),
+       do: tracker
+
+  defp build_tracker(%GEPA.OptimizeAnything.TrackingConfig{} = tracking) do
+    if tracking_options_present?(tracking) do
+      tracking
+      |> Map.from_struct()
+      |> Map.delete(:tracker)
+      |> GEPA.Tracking.create_experiment_tracker()
+    end
+  end
+
+  defp tracking_options_present?(%GEPA.OptimizeAnything.TrackingConfig{} = tracking) do
+    tracking
+    |> Map.from_struct()
+    |> Map.take(@tracking_option_keys)
+    |> Enum.any?(fn {_key, value} -> present_tracking_value?(value) end)
+  end
+
+  defp present_tracking_value?(nil), do: false
+  defp present_tracking_value?(false), do: false
+  defp present_tracking_value?(_value), do: true
 
   defp resolve_runtime_config!(%Config{} = config) do
     reflection_lm =

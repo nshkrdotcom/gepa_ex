@@ -195,7 +195,7 @@ defmodule GEPA do
       merge_proposer: build_merge_proposer(opts, adapter, val_loader),
       raise_on_exception: Keyword.get(opts, :raise_on_exception, true),
       custom_candidate_proposer: Keyword.get(opts, :custom_candidate_proposer),
-      tracker: Keyword.get(opts, :tracker)
+      tracker: build_tracker(opts)
     }
   end
 
@@ -377,6 +377,40 @@ defmodule GEPA do
       Keyword.get(opts, :cache_evaluation, false) -> EvaluationCache.new()
       true -> nil
     end
+  end
+
+  defp build_tracker(opts) do
+    case Keyword.get(opts, :tracker) do
+      nil ->
+        if tracking_options_present?(opts) do
+          opts
+          |> Keyword.take(tracking_option_keys())
+          |> GEPA.Tracking.create_experiment_tracker()
+        end
+
+      tracker ->
+        tracker
+    end
+  end
+
+  defp tracking_options_present?(opts) do
+    Enum.any?(tracking_option_keys(), &Keyword.has_key?(opts, &1))
+  end
+
+  defp tracking_option_keys do
+    [
+      :key_prefix,
+      :attach_existing,
+      :use_wandb,
+      :wandb_api_key,
+      :wandb_init_kwargs,
+      :wandb_attach_existing,
+      :wandb_step_metric,
+      :use_mlflow,
+      :mlflow_tracking_uri,
+      :mlflow_experiment_name,
+      :mlflow_attach_existing
+    ]
   end
 
   defp build_merge_proposer(opts, adapter, val_loader) do

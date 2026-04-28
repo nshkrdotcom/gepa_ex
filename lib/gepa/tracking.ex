@@ -7,6 +7,8 @@ defmodule GEPA.Tracking do
   them to external systems or keep them in memory for tests and local tooling.
   """
 
+  alias GEPA.Tracking.ExperimentTracker
+
   @type tracker :: module() | struct() | nil
 
   @callback start(term()) :: :ok | {:ok, term()}
@@ -42,6 +44,15 @@ defmodule GEPA.Tracking do
   @spec finish(tracker()) :: :ok
   def finish(nil), do: :ok
   def finish(tracker), do: dispatch(tracker, :finish, [tracker])
+
+  @doc """
+  Create the dependency-free experiment tracker used for upstream-style
+  tracking options.
+  """
+  @spec create_experiment_tracker(keyword() | map()) :: ExperimentTracker.t()
+  def create_experiment_tracker(opts \\ []) do
+    ExperimentTracker.new(opts)
+  end
 
   defp dispatch(%module{}, function, args), do: dispatch_module(module, function, args)
 
