@@ -1,6 +1,7 @@
 defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
   use ExUnit.Case, async: true
 
+  alias GEPA.Adapters.GenericRAG
   alias GEPA.Adapters.GenericRAG.VectorStore
   alias GEPA.Adapters.GenericRAG.VectorStore.InMemory
 
@@ -108,5 +109,58 @@ defmodule GEPA.Adapters.GenericRAG.VectorStoreTest do
     test_file = Path.join(data_dir, "fixture.txt")
     File.write!(test_file, "ok")
     assert File.read!(test_file) == "ok"
+  end
+
+  describe "upstream interface-only parity" do
+    test "RAG data instance exposes expected fields" do
+      data_inst = %GenericRAG.DataInst{
+        query: "What is machine learning?",
+        ground_truth_answer: "ML is a subset of AI.",
+        relevant_doc_ids: ["doc1", "doc2"],
+        metadata: %{category: "AI", difficulty: "beginner"}
+      }
+
+      assert data_inst.query == "What is machine learning?"
+      assert data_inst.ground_truth_answer == "ML is a subset of AI."
+      assert data_inst.relevant_doc_ids == ["doc1", "doc2"]
+      assert data_inst.metadata.category == "AI"
+    end
+
+    test "RAG data instance required fields are present with list and map defaults" do
+      data_inst = %GenericRAG.DataInst{
+        query: "Test query",
+        ground_truth_answer: "Test answer",
+        relevant_doc_ids: [],
+        metadata: %{}
+      }
+
+      assert Map.has_key?(data_inst, :query)
+      assert Map.has_key?(data_inst, :ground_truth_answer)
+      assert Map.has_key?(data_inst, :relevant_doc_ids)
+      assert Map.has_key?(data_inst, :metadata)
+      assert is_list(data_inst.relevant_doc_ids)
+      assert is_map(data_inst.metadata)
+    end
+
+    test "vector store interface is a behaviour facade, not an instantiable store" do
+      assert Code.ensure_loaded?(VectorStore)
+      assert function_exported?(VectorStore, :behaviour_info, 1)
+      refute function_exported?(VectorStore, :new, 0)
+    end
+
+    test "vector store interface defines required callback methods" do
+      callbacks = VectorStore.behaviour_info(:callbacks)
+
+      assert {:similarity_search, 4} in callbacks
+      assert {:vector_search, 4} in callbacks
+      assert {:get_collection_info, 1} in callbacks
+    end
+
+    test "vector store interface defines optional hybrid search facade" do
+      callbacks = VectorStore.behaviour_info(:callbacks)
+
+      assert function_exported?(VectorStore, :hybrid_search, 4)
+      refute {:hybrid_search, 4} in callbacks
+    end
   end
 end
