@@ -101,6 +101,11 @@ Qdrant RAG:
   Gemini embeddings through ReqLLM:
     docker compose up -d qdrant
     GEMINI_API_KEY or GOOGLE_API_KEY must be set
+
+Confidence Adapter:
+  examples/18_confidence_adapter.exs requires ReqLLM structured output.
+  When this runner is using ASM for other examples, the confidence example
+  still runs through the first configured ReqLLM hosted provider.
 USAGE
 }
 
@@ -364,6 +369,26 @@ qdrant_args=(--adapter asm --provider gemini --model gemini-3.1-flash-lite-previ
 [[ -z "$embedding_model" ]] || qdrant_args+=(--embedding-model "$embedding_model")
 [[ -z "$embedding_dimensions" ]] || qdrant_args+=(--embedding-dimensions "$embedding_dimensions")
 
+confidence_args=()
+if [[ "$adapter" == "req_llm" ]]; then
+  confidence_args=("${common_args[@]}")
+else
+  if confidence_provider="$(default_req_llm_provider)"; then
+    confidence_args=(--adapter req_llm --provider "$confidence_provider")
+    [[ "$simple" == "false" ]] || confidence_args+=(--simple)
+    [[ -z "$api_key" ]] || confidence_args+=(--api-key "$api_key")
+    [[ -z "$temperature" ]] || confidence_args+=(--temperature "$temperature")
+    [[ -z "$max_tokens" ]] || confidence_args+=(--max-tokens "$max_tokens")
+    [[ -z "$timeout" ]] || confidence_args+=(--timeout "$timeout")
+    [[ -z "$top_p" ]] || confidence_args+=(--top-p "$top_p")
+    [[ -z "$max_metric_calls" ]] || confidence_args+=(--max-metric-calls "$max_metric_calls")
+    [[ -z "$minibatch_size" ]] || confidence_args+=(--minibatch-size "$minibatch_size")
+  else
+    error_and_usage "examples/18_confidence_adapter.exs requires a configured ReqLLM provider because ASM structured output is unsupported"
+    exit 64
+  fi
+fi
+
 cat <<WARNING
 LIVE LLM CALL WARNING
 =====================
@@ -392,3 +417,4 @@ mix run examples/14_arc_grid.exs -- "${common_args[@]}"
 mix run examples/15_blackbox_search.exs -- "${common_args[@]}"
 mix run examples/16_circle_packing.exs -- "${common_args[@]}"
 mix run examples/17_qdrant_rag.exs -- "${qdrant_args[@]}"
+mix run examples/18_confidence_adapter.exs -- "${confidence_args[@]}"

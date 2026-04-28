@@ -15,10 +15,10 @@ estimated_calls = max(config.max_metric_calls * 2, 1)
 IO.puts(LiveCLI.cost_warning(example[:name], config.adapter, config.provider, estimated_calls))
 
 evaluator = fn code ->
-  result = GEPA.CodeExecution.execute(code, mode: :subprocess, timeout: 5_000)
+  result = GEPA.CodeExecution.execute_code(code, mode: :subprocess, timeout: 5_000)
 
   score =
-    if result.status == :ok and String.contains?(result.stdout, "gepa-code-ok") do
+    if result.success and String.contains?(result.stdout, "gepa-code-ok") do
       1.0
     else
       0.0
@@ -26,7 +26,7 @@ evaluator = fn code ->
 
   {score,
    %{
-     Output: inspect(result.value),
+     Output: inspect(result.result),
      stdout: result.stdout,
      Error: result.error,
      Feedback: "The snippet must print gepa-code-ok and finish successfully.",

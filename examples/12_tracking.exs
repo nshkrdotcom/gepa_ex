@@ -31,6 +31,7 @@ adapter = GEPA.Adapters.Basic.new(llm: config.client)
   )
 
 snapshot = GEPA.Tracking.InMemory.snapshot(tracker)
+summary = List.last(snapshot.summaries) || %{}
 
 IO.puts("""
 
@@ -39,5 +40,5 @@ Tracking Complete
 
 Best score: #{Float.round(GEPA.Result.best_score(result), 4)}
 Metric rows: #{length(snapshot.metrics)}
-Summary keys: #{Map.keys(snapshot.summary) |> Enum.sort() |> Enum.join(", ")}
+Summary keys: #{Map.keys(summary) |> Enum.sort() |> Enum.join(", ")}
 """)

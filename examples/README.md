@@ -145,6 +145,7 @@ mix run examples/14_arc_grid.exs -- --simple
 mix run examples/15_blackbox_search.exs -- --simple
 mix run examples/16_circle_packing.exs -- --simple
 mix run examples/17_qdrant_rag.exs -- --simple
+mix run examples/18_confidence_adapter.exs -- --simple
 ```
 
 You can combine `--simple` with explicit backend selection:
@@ -404,6 +405,27 @@ mix run examples/17_qdrant_rag.exs -- \
   --embedding-model gemini-embedding-001 \
   --max-metric-calls 2
 ```
+
+### 18 Confidence Adapter
+
+Runs live structured-output classification through `GEPA.Adapters.Confidence`.
+The example uses ReqLLM structured output so the model returns a JSON object with
+`category`. Provider logprobs are used when available; when the selected
+provider does not expose logprobs, confidence probability remains explicitly
+unavailable rather than being synthesized.
+
+```bash
+mix run examples/18_confidence_adapter.exs -- --simple
+```
+
+Custom JSONL rows should contain `input` and `answer`, where `answer` is one of
+the categories described by your prompt. The built-in simple mode uses
+`billing`, `shipping`, and `product`.
+
+Expected output includes `Confidence Adapter Optimization Complete`, the
+structured-output path, the confidence-source policy, the best score, and the
+best prompt. Use ReqLLM for this example; ASM structured output is intentionally
+unsupported until ASM exposes a native structured-output contract.
 
 ## Run Everything
 
