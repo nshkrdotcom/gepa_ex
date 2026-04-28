@@ -121,6 +121,29 @@ defmodule GEPA.Adapters.GenericRAG.Metrics do
     if String.trim(to_string(answer)) == "", do: 0.0, else: 1.0
   end
 
+  @doc "Normalize text for exact-match style comparisons."
+  @spec normalize_text(term()) :: String.t()
+  def normalize_text(text) do
+    text
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[[:punct:]]+/, " ")
+    |> String.trim()
+    |> String.split(" ", trim: true)
+    |> Enum.join(" ")
+  end
+
+  @doc "Extract simple contiguous two- and three-token phrases."
+  @spec extract_phrases(term()) :: MapSet.t(String.t())
+  def extract_phrases(text) do
+    tokens = token_list(text)
+
+    tokens
+    |> ngrams(2)
+    |> Kernel.++(ngrams(tokens, 3))
+    |> MapSet.new()
+  end
+
   defp doc_id(doc) do
     metadata = Map.get(doc, :metadata) || Map.get(doc, "metadata") || %{}
 
@@ -135,7 +158,14 @@ defmodule GEPA.Adapters.GenericRAG.Metrics do
     |> String.split(~r/[^[:alnum:]]+/, trim: true)
   end
 
-  defp normalize_text(text), do: text |> to_string() |> String.downcase() |> String.trim()
   defp safe_div(_num, 0), do: 0.0
   defp safe_div(num, den), do: num / den
+
+  defp ngrams(tokens, n) when length(tokens) < n, do: []
+
+  defp ngrams(tokens, n) do
+    tokens
+    |> Enum.chunk_every(n, 1, :discard)
+    |> Enum.map(&Enum.join(&1, " "))
+  end
 end
