@@ -343,7 +343,7 @@ defmodule GEPA do
       sampler ->
         if Keyword.has_key?(opts, :reflection_minibatch_size) do
           raise ArgumentError,
-                "reflection_minibatch_size only accepted when batch_sampler is :epoch_shuffled"
+                "reflection_minibatch_size only accepted if batch_sampler is :epoch_shuffled or \"epoch_shuffled\""
         end
 
         sampler
@@ -352,9 +352,17 @@ defmodule GEPA do
 
   defp build_module_selector(opts) do
     case Keyword.get(opts, :module_selector, :round_robin) do
-      selector when selector in [:round_robin, "round_robin", RoundRobin] -> RoundRobin
-      selector when selector in [:all, "all", All] -> All
-      selector -> selector
+      selector when selector in [:round_robin, "round_robin", RoundRobin] ->
+        RoundRobin
+
+      selector when selector in [:all, "all", All] ->
+        All
+
+      selector when is_binary(selector) ->
+        raise ArgumentError, "Unknown module_selector strategy: #{selector}"
+
+      selector ->
+        selector
     end
   end
 

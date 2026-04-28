@@ -7,7 +7,7 @@ defmodule GEPA.OptimizeTest do
   alias GEPA.StopCondition.MaxCalls
   alias GEPA.Strategies.BatchSampler.EpochShuffled
   alias GEPA.Strategies.CandidateSelector.{CurrentBest, EpsilonGreedy, Pareto, TopKPareto}
-  alias GEPA.Strategies.ComponentSelector.RoundRobin
+  alias GEPA.Strategies.ComponentSelector.{All, RoundRobin}
   alias GEPA.Strategies.EvaluationPolicy.Full
 
   defmodule EqualScoreAdapter do
@@ -345,7 +345,125 @@ defmodule GEPA.OptimizeTest do
       )
     end
 
-    test "normalizes batch sampler, module selector, validation policy, and acceptance criterion" do
+    test "defaults module selector to round robin" do
+      assert_config(
+        assert: fn config ->
+          assert config.module_selector == RoundRobin
+        end
+      )
+    end
+
+    test "normalizes module selector string aliases" do
+      assert_config(
+        module_selector: "round_robin",
+        assert: fn config ->
+          assert config.module_selector == RoundRobin
+        end
+      )
+
+      assert_config(
+        module_selector: "all",
+        assert: fn config ->
+          assert config.module_selector == All
+        end
+      )
+    end
+
+    test "passes custom module selector through" do
+      custom_selector = fn _state, _trajectories, _scores, _candidate_idx, _candidate ->
+        ["test_component"]
+      end
+
+      assert_config(
+        module_selector: custom_selector,
+        assert: fn config ->
+          assert config.module_selector === custom_selector
+        end
+      )
+    end
+
+    test "all component selector returns every candidate component" do
+      state = %GEPA.State{
+        program_candidates: [],
+        parent_program_for_candidate: [],
+        prog_candidate_val_subscores: [],
+        pareto_front_valset: %{},
+        program_at_pareto_front_valset: %{},
+        list_of_named_predictors: ["component1", "component2", "component3"]
+      }
+
+      candidate = %{
+        "component1" => "value1",
+        "component2" => "value2",
+        "component3" => "value3"
+      }
+
+      assert {["component1", "component2", "component3"], ^state} =
+               All.select(state, 0, candidate)
+    end
+
+    test "invalid module selector string raises error" do
+      assert_raise ArgumentError, ~r/Unknown module_selector strategy/, fn ->
+        GEPA.optimize(
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q", answer: "A"}],
+          adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
+          module_selector: "invalid_strategy",
+          max_metric_calls: 1
+        )
+      end
+    end
+
+    test "normalizes batch sampler configuration options" do
+      assert_config(
+        assert: fn config ->
+          assert %EpochShuffled{minibatch_size: 3} = config.batch_sampler
+        end
+      )
+
+      assert_config(
+        reflection_minibatch_size: 7,
+        assert: fn config ->
+          assert %EpochShuffled{minibatch_size: 7} = config.batch_sampler
+        end
+      )
+
+      assert_config(
+        batch_sampler: "epoch_shuffled",
+        reflection_minibatch_size: 5,
+        assert: fn config ->
+          assert %EpochShuffled{minibatch_size: 5} = config.batch_sampler
+        end
+      )
+
+      custom_batch_sampler = EpochShuffled.new(minibatch_size: 10)
+
+      assert_config(
+        batch_sampler: custom_batch_sampler,
+        assert: fn config ->
+          assert config.batch_sampler == custom_batch_sampler
+        end
+      )
+    end
+
+    test "invalid batch sampler configuration raises error" do
+      custom_batch_sampler = EpochShuffled.new(minibatch_size: 5)
+
+      assert_raise ArgumentError, ~r/reflection_minibatch_size only accepted/, fn ->
+        GEPA.optimize(
+          seed_candidate: %{"i" => "test"},
+          trainset: [%{input: "Q", answer: "A"}],
+          adapter: Basic.new(),
+          custom_candidate_proposer: custom_candidate_proposer(),
+          batch_sampler: custom_batch_sampler,
+          reflection_minibatch_size: 3,
+          max_metric_calls: 1
+        )
+      end
+    end
+
+    test "normalizes strategy aliases, validation policy, and acceptance criterion" do
       assert_config(
         batch_sampler: :epoch_shuffled,
         reflection_minibatch_size: 7,
