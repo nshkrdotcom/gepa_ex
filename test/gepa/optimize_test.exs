@@ -422,6 +422,61 @@ defmodule GEPA.OptimizeTest do
       assert %GEPA.Result{} = result
       assert Result.best_score(result) == 1.0
     end
+
+    test "optimizes an AIME-style system prompt with default adapter and reflection_lm" do
+      aime_examples = aime_style_examples()
+      trainset = Enum.take(aime_examples, 10)
+      valset = Enum.drop(aime_examples, 10)
+      answers_by_input = Map.new(aime_examples, &{&1.input, &1.answer})
+
+      optimized_prompt =
+        "Check each arithmetic step twice and return only the final integer answer."
+
+      captured_prompts = :ets.new(:aime_reflection_prompts, [:ordered_set, :public])
+
+      reflection_lm =
+        Mock.new(
+          response_fn: fn prompt ->
+            :ets.insert(captured_prompts, {System.unique_integer([:positive]), prompt})
+            "```\n#{optimized_prompt}\n```"
+          end
+        )
+
+      task_lm = fn messages ->
+        system_message = Enum.find(messages, &(&1.role == "system"))
+        user_message = Enum.find(messages, &(&1.role == "user"))
+        answer = Map.fetch!(answers_by_input, user_message.content)
+
+        if String.contains?(system_message.content, "Check each arithmetic step twice") do
+          "The final answer is #{answer}."
+        else
+          "The final answer is 999."
+        end
+      end
+
+      {:ok, result} =
+        GEPA.optimize(
+          seed_candidate: %{
+            "system_prompt" =>
+              "Solve the problem. The final answer must be an integer in the range 0-999."
+          },
+          trainset: trainset,
+          valset: valset,
+          task_lm: task_lm,
+          max_metric_calls: 30,
+          reflection_lm: reflection_lm,
+          reflection_minibatch_size: 3,
+          score_threshold: 1.0
+        )
+
+      prompts = :ets.tab2list(captured_prompts) |> Enum.map(&elem(&1, 1))
+      :ets.delete(captured_prompts)
+
+      assert Enum.any?(prompts, &String.contains?(&1, "Generated Outputs"))
+      assert length(result.candidates) >= 2
+      assert Result.best_score(result) == 1.0
+      assert Result.best_candidate(result)["system_prompt"] == optimized_prompt
+    end
   end
 
   describe "GEPA.optimize/1 acceptance criteria" do
@@ -507,6 +562,20 @@ defmodule GEPA.OptimizeTest do
       Map.new(components, fn component ->
         {component, Map.get(candidate, component, "") <> " updated"}
       end)
+    end
+  end
+
+  defp aime_style_examples do
+    for n <- 1..20 do
+      left = n + 11
+      right = n * 4 + 7
+
+      %{
+        input:
+          "AIME-style problem #{n}: Compute #{left} + #{right}. " <>
+            "Return the final answer as an integer.",
+        answer: Integer.to_string(left + right)
+      }
     end
   end
 
