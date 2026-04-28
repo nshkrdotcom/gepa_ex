@@ -1288,7 +1288,7 @@ defmodule GEPA.OptimizeAnything do
   end
 
   defp cache_dir(%Config{engine: %{run_dir: nil}}), do: nil
-  defp cache_dir(%Config{engine: %{run_dir: run_dir}}), do: Path.join(run_dir, "eval_cache")
+  defp cache_dir(%Config{engine: %{run_dir: run_dir}}), do: Path.join(run_dir, "fitness_cache")
 
   defp cache_mode(%Config{engine: engine}) do
     case engine.cache_evaluation do
@@ -1303,7 +1303,8 @@ defmodule GEPA.OptimizeAnything do
     end
   end
 
-  defp cache_storage_mode(%{cache_evaluation_storage: :disk, run_dir: nil}) do
+  defp cache_storage_mode(%{cache_evaluation_storage: storage, run_dir: nil})
+       when storage in [:disk, "disk"] do
     raise ArgumentError, "cache_evaluation_storage=:disk requires engine.run_dir"
   end
 

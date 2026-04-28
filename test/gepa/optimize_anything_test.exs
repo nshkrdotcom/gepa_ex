@@ -206,6 +206,117 @@ defmodule GEPA.OptimizeAnythingTest do
     assert Agent.get(counter, & &1) == 1
   end
 
+  test "disk cache persists identical candidate/example results across adapters" do
+    tmp_dir =
+      Path.join(System.tmp_dir!(), "gepa-oa-cache-test-#{System.unique_integer([:positive])}")
+
+    cache_dir = Path.join(tmp_dir, "fitness_cache")
+    on_exit(fn -> File.rm_rf(tmp_dir) end)
+
+    candidate = %{"candidate" => "seed"}
+    batch = [%{id: 1}]
+
+    {:ok, first_counter} = Agent.start_link(fn -> 0 end)
+
+    first_adapter =
+      OptimizeAnything.Adapter.new(
+        evaluator: counted_evaluator(first_counter),
+        cache_mode: :disk,
+        cache_dir: cache_dir,
+        parallelism: 1
+      )
+
+    assert {:ok, first} = OptimizeAnything.Adapter.evaluate(first_adapter, batch, candidate, true)
+    assert first.num_metric_calls == 1
+    assert Agent.get(first_counter, & &1) == 1
+    assert File.dir?(cache_dir)
+    assert cache_dir |> File.ls!() |> Enum.any?(&String.ends_with?(&1, ".etf"))
+
+    {:ok, second_counter} = Agent.start_link(fn -> 0 end)
+
+    second_adapter =
+      OptimizeAnything.Adapter.new(
+        evaluator: counted_evaluator(second_counter),
+        cache_mode: :disk,
+        cache_dir: cache_dir,
+        parallelism: 1
+      )
+
+    assert {:ok, second} =
+             OptimizeAnything.Adapter.evaluate(second_adapter, batch, candidate, true)
+
+    assert second.num_metric_calls == 0
+    assert Agent.get(second_counter, & &1) == 0
+  end
+
+  test "cache off re-evaluates identical candidate/example pairs" do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    adapter =
+      OptimizeAnything.Adapter.new(
+        evaluator: counted_evaluator(counter),
+        cache_mode: :off,
+        parallelism: 1
+      )
+
+    batch = [%{id: 1}]
+    candidate = %{"candidate" => "seed"}
+
+    assert {:ok, first} = OptimizeAnything.Adapter.evaluate(adapter, batch, candidate, true)
+    assert {:ok, second} = OptimizeAnything.Adapter.evaluate(adapter, batch, candidate, true)
+
+    assert first.num_metric_calls == 1
+    assert second.num_metric_calls == 1
+    assert Agent.get(counter, & &1) == 2
+  end
+
+  test "cache evaluation auto mode uses disk when run_dir is provided" do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "gepa-oa-auto-cache-test-#{System.unique_integer([:positive])}"
+      )
+
+    on_exit(fn -> File.rm_rf(tmp_dir) end)
+
+    assert {:ok, _result} =
+             OptimizeAnything.optimize_anything(
+               seed_candidate: %{"number" => "50"},
+               evaluator: fn _candidate -> 0.5 end,
+               engine: %{max_metric_calls: 1, cache_evaluation: true, run_dir: tmp_dir},
+               reflection: %{custom_candidate_proposer: passthrough_proposer()}
+             )
+
+    assert File.dir?(Path.join(tmp_dir, "fitness_cache"))
+  end
+
+  test "cache evaluation auto mode uses memory without run_dir" do
+    assert {:ok, _result} =
+             OptimizeAnything.optimize_anything(
+               seed_candidate: %{"number" => "50"},
+               evaluator: fn _candidate -> 0.5 end,
+               engine: %{max_metric_calls: 1, cache_evaluation: true, run_dir: nil},
+               reflection: %{custom_candidate_proposer: passthrough_proposer()}
+             )
+  end
+
+  test "disk cache mode without run_dir returns a validation error" do
+    assert {:error, %ArgumentError{message: message}} =
+             OptimizeAnything.optimize_anything(
+               seed_candidate: %{"number" => "50"},
+               evaluator: fn _candidate -> 0.5 end,
+               engine: %{
+                 max_metric_calls: 1,
+                 cache_evaluation: true,
+                 cache_evaluation_storage: "disk",
+                 run_dir: nil
+               },
+               reflection: %{custom_candidate_proposer: passthrough_proposer()}
+             )
+
+    assert message =~ "cache_evaluation_storage=:disk requires engine.run_dir"
+  end
+
   test "refiner evaluates JSON refinements and records attempt history" do
     refiner =
       Mock.new(responses: [~s({"prompt":"better","refiner_prompt":"keep refining"})])
@@ -280,5 +391,18 @@ defmodule GEPA.OptimizeAnythingTest do
       )
 
     assert GEPA.Result.best_candidate(result) == "generated seed"
+  end
+
+  defp passthrough_proposer do
+    fn candidate, _dataset, components ->
+      Map.new(components, &{&1, Map.fetch!(candidate, &1)})
+    end
+  end
+
+  defp counted_evaluator(counter) do
+    fn _candidate, _example ->
+      Agent.update(counter, &(&1 + 1))
+      {0.5, %{Feedback: "cached"}}
+    end
   end
 end
