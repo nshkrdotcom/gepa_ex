@@ -141,6 +141,7 @@ mix run examples/10_code_execution.exs -- --simple
 mix run examples/11_refiner.exs -- --simple
 mix run examples/12_tracking.exs -- --simple
 mix run examples/13_adrs_cloud_optimization.exs -- --simple
+mix run examples/14_arc_grid.exs -- --simple
 ```
 
 You can combine `--simple` with explicit backend selection:
@@ -316,6 +317,21 @@ mix run examples/13_adrs_cloud_optimization.exs -- --simple
 Expected output includes `ADR Cloud Optimization Complete`, the best validation
 score, and the best policy text. If the score stays low, increase
 `--max-metric-calls` or use a stronger reflection model.
+
+### 14 ARC Grid
+
+Optimizes a headless ARC grid-solving instruction. The live adapter sees
+training input/output grids and predicts a test output grid as compact JSON.
+`--simple` uses a tiny fixture set; custom JSONL rows should provide `input`
+as the full ARC task prompt and `answer` as the exact JSON grid to match.
+
+```bash
+mix run examples/14_arc_grid.exs -- --simple
+```
+
+Expected output includes `ARC Grid Optimization Complete`, the best validation
+score, and the best instruction. If exact JSON matching is brittle for a
+provider, make the `answer` string and task prompt agree on compact formatting.
 
 ## Run Everything
 

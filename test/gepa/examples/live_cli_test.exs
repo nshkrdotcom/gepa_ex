@@ -220,6 +220,18 @@ defmodule GEPA.Examples.LiveCLITest do
       assert config.minibatch_size == 1
     end
 
+    test "simple mode supplies ARC grid fixtures for the ARC example" do
+      example = Keyword.put(@example, :script, "examples/14_arc_grid.exs")
+
+      assert {:ok, config} =
+               LiveCLI.parse(["--simple"], with_env(example, %{"GEMINI_API_KEY" => "g"}))
+
+      assert [%{input: input, answer: answer} | _] = config.trainset
+      assert input =~ "ARC"
+      assert input =~ "[["
+      assert answer =~ "[["
+    end
+
     test "simple ASM Codex uses gpt-5.4-mini without --model" do
       assert {:ok, config} =
                LiveCLI.parse(

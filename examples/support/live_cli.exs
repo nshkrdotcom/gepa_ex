@@ -398,6 +398,7 @@ defmodule LiveCLI do
     case Keyword.fetch!(example, :script) do
       "examples/03_custom_adapter.exs" -> simple_sentiment_dataset(split)
       "examples/02_math_problems.exs" -> simple_math_dataset(split)
+      "examples/14_arc_grid.exs" -> simple_arc_dataset(split)
       _script -> simple_qa_dataset(split)
     end
   end
@@ -419,6 +420,55 @@ defmodule LiveCLI do
   end
 
   defp simple_math_dataset(:val), do: [%{input: "What is 15 - 4?", answer: "11"}]
+
+  defp simple_arc_dataset(:train) do
+    [
+      %{
+        input: """
+        ARC grid task. Infer the transformation from the examples and return only the JSON grid for the test output.
+
+        Example 1 input: [[1,0],[0,0]]
+        Example 1 output: [[1,1],[1,1]]
+
+        Example 2 input: [[2,0],[0,0]]
+        Example 2 output: [[2,2],[2,2]]
+
+        Test input: [[3,0],[0,0]]
+        """,
+        answer: "[[3,3],[3,3]]"
+      },
+      %{
+        input: """
+        ARC grid task. Infer the transformation from the examples and return only the JSON grid for the test output.
+
+        Example 1 input: [[0,4,0]]
+        Example 1 output: [[4,4,4]]
+
+        Example 2 input: [[0,5,0]]
+        Example 2 output: [[5,5,5]]
+
+        Test input: [[0,6,0]]
+        """,
+        answer: "[[6,6,6]]"
+      }
+    ]
+  end
+
+  defp simple_arc_dataset(:val) do
+    [
+      %{
+        input: """
+        ARC grid task. Infer the transformation from the examples and return only the JSON grid for the test output.
+
+        Example 1 input: [[7,0],[0,0]]
+        Example 1 output: [[7,7],[7,7]]
+
+        Test input: [[8,0],[0,0]]
+        """,
+        answer: "[[8,8],[8,8]]"
+      }
+    ]
+  end
 
   defp simple_sentiment_dataset(:train) do
     [
