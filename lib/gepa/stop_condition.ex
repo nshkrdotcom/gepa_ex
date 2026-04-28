@@ -327,10 +327,10 @@ defmodule GEPA.StopCondition.MaxCalls do
 
   defstruct [:max_calls]
 
-  @type t :: %__MODULE__{max_calls: pos_integer()}
+  @type t :: %__MODULE__{max_calls: non_neg_integer()}
 
-  @spec new(pos_integer()) :: t()
-  def new(max_calls) when is_integer(max_calls) and max_calls > 0 do
+  @spec new(non_neg_integer()) :: t()
+  def new(max_calls) when is_integer(max_calls) and max_calls >= 0 do
     %__MODULE__{max_calls: max_calls}
   end
 
