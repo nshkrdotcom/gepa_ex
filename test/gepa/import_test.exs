@@ -6,6 +6,8 @@ defmodule GEPA.ImportTest do
   end
 
   test "optimize entrypoint is exported" do
+    Code.ensure_loaded!(GEPA)
+
     assert function_exported?(GEPA, :optimize, 1)
   end
 end
