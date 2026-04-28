@@ -175,5 +175,33 @@ defmodule GEPA.Strategies.BatchSamplerTest do
       assert epoch2 != epoch3
       assert epoch1 != epoch3
     end
+
+    test "refreshes shuffled IDs when loader expands" do
+      loader = DataLoader.List.new([:a, :b, :c, :d])
+      sampler = EpochShuffled.new(minibatch_size: 2, seed: 0)
+
+      {first_batch, sampler} = EpochShuffled.next_batch(sampler, loader, %{i: 0})
+
+      assert length(first_batch) == 2
+      assert length(sampler.shuffled_ids) == 4
+      assert sampler.last_trainset_size == 4
+
+      expanded_loader = DataLoader.List.add_items(loader, [:e, :f])
+      {second_batch, sampler} = EpochShuffled.next_batch(sampler, expanded_loader, %{i: 1})
+
+      assert length(second_batch) == 2
+      assert sampler.last_trainset_size == 6
+      assert length(sampler.shuffled_ids) == 6
+      assert MapSet.subset?(MapSet.new([4, 5]), MapSet.new(sampler.shuffled_ids))
+    end
+
+    test "raises when loader is empty" do
+      loader = DataLoader.List.new([])
+      sampler = EpochShuffled.new(minibatch_size: 2, seed: 0)
+
+      assert_raise ArgumentError, ~r/empty loader/, fn ->
+        EpochShuffled.next_batch(sampler, loader, %{i: 0})
+      end
+    end
   end
 end
