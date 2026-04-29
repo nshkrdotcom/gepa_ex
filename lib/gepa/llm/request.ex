@@ -74,7 +74,8 @@ defmodule GEPA.LLM.Request do
   def prompt(%__MODULE__{input: input}), do: input
 
   @doc "Render prompt messages to plain text for adapters that only support text."
-  @spec to_text(prompt() | nil) :: String.t() | nil
+  @spec to_text(t() | prompt() | nil) :: String.t() | nil
+  def to_text(%__MODULE__{} = request), do: request |> prompt_with_system() |> to_text()
   def to_text(nil), do: nil
   def to_text(prompt) when is_binary(prompt), do: prompt
 
@@ -99,4 +100,20 @@ defmodule GEPA.LLM.Request do
   end
 
   defp content_to_text(content), do: inspect(content)
+
+  defp prompt_with_system(%__MODULE__{system: system} = request)
+       when is_binary(system) and system != "" do
+    case prompt(request) do
+      messages when is_list(messages) ->
+        [%{role: :system, content: system} | messages]
+
+      prompt when is_binary(prompt) ->
+        [%{role: :system, content: system}, %{role: :user, content: prompt}]
+
+      nil ->
+        [%{role: :system, content: system}]
+    end
+  end
+
+  defp prompt_with_system(%__MODULE__{} = request), do: prompt(request)
 end

@@ -12,6 +12,19 @@ If `:adapter` is omitted, GEPA can build the default adapter when you provide `:
 
 `GEPA.Adapter` is the task adapter contract. LLM clients such as `GEPA.LLM.req_llm(:openai)` and `GEPA.LLM.agent(:codex)` are usually passed into a task adapter or into reflection options. GEPA preserves that public facade while delegating provider execution through the shared `:inference` contracts.
 
+`GEPA.LLM.Request` is the normalized provider request shape. It carries prompt
+input, optional message lists, a separate `:system` message, schema, portable
+tools, `:tool_choice`, sampling options, session data, provider options, and
+metadata. ReqLLM-backed calls keep message-list prompts native across the
+`:inference` boundary; text-only providers receive a rendered text form that
+includes the system message.
+
+`GEPA.LLM.Response` is the normalized provider response shape. It carries text
+or object output plus messages, tool calls, tool results, usage, provider cost,
+stop reason, provider/model identity, session reference, raw provider response,
+and metadata. Cost and tool-call fields are provider-reported; GEPA does not
+invent them when a backend omits them.
+
 ## Search Controls
 
 - `:candidate_selection_strategy` or `:candidate_selector`

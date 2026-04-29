@@ -23,6 +23,12 @@ Internally, the provider-facing work is delegated through the shared `:inference
 
 The normalized request and response structs are `GEPA.LLM.Request` and `GEPA.LLM.Response`. Optimizer and proposer code should depend on the facade, not on provider-native response shapes.
 
+`GEPA.LLM.Request.system` is preserved across the inference boundary. Hosted
+ReqLLM calls keep native message-list prompts as message lists, prepend the
+system message when supplied separately, and forward portable tools,
+`:tool_choice`, provider options, usage, provider-reported cost, and tool-call
+response fields through the normalized GEPA response.
+
 ## Hosted Providers
 
 Hosted providers go through `GEPA.LLM.Adapters.ReqLLM`, which is now a GEPA compatibility wrapper around `Inference.Adapters.ReqLLM`.
@@ -79,6 +85,11 @@ Local CLI-backed providers go through `GEPA.LLM.Adapters.AgentSessionManager`, w
 | Gemini | `GEPA.LLM.agent(:gemini, opts)` | `gemini-3.1-flash-lite-preview` | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
 | Amp | `GEPA.LLM.agent(:amp, opts)` | ASM default unless `:model` is provided | `:auto`, `:core`, `:sdk` | text, stream, session, session resume, cost metadata |
 
+ASM/Gemini uses the local Gemini CLI runtime/auth path that Agent Session
+Manager resolves. Do not configure or block that path as if it required a
+hosted Gemini API key; hosted credentials belong to ReqLLM/Gemini and
+GeminiEx-backed flows.
+
 Example:
 
 ```elixir
@@ -118,6 +129,11 @@ embedder =
 The default Generic RAG integration uses ReqLLM/Gemini embeddings and
 Agent Session Manager/Gemini inference. Qdrant stores and searches vectors; it
 does not create embeddings.
+
+For 0.3.0, embedding provider code stays under `GEPA.Embeddings`. If multiple
+projects need the same embedding provider boundary later, move those provider
+implementations into `:inference` behind a separate embedding contract instead
+of mixing embedding calls into the text-inference adapters.
 
 ## Live Smoke Commands
 
@@ -191,10 +207,16 @@ tool =
     run: fn args, _context -> {:ok, %{"value" => args["key"]}} end
   )
 
-{:ok, text} = GEPA.LLM.complete(llm, "Use the lookup tool.", tools: [tool])
+{:ok, text} =
+  GEPA.LLM.complete(llm, "Use the lookup tool.",
+    tools: [tool],
+    tool_choice: :auto
+  )
 ```
 
-Tool execution support depends on the selected ReqLLM provider and model. ASM tool-loop support is not exposed by GEPA yet and remains capability-gated.
+Tool execution support depends on the selected ReqLLM provider and model. When
+the provider returns tool calls, GEPA preserves them on `GEPA.LLM.Response`.
+ASM tool-loop support is not exposed by GEPA yet and remains capability-gated.
 
 ## Task Adapter Contract
 

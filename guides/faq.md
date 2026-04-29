@@ -20,6 +20,10 @@ GEPA.LLM.agent(:gemini, provider_opts: [model: "gemini-3.1-flash-lite-preview"])
 
 For hosted structured output, use ReqLLM.
 
+ASM/Gemini uses the local Gemini CLI runtime/auth path managed by Agent Session
+Manager. ReqLLM/Gemini and GeminiEx-backed paths are the ones that require
+hosted Gemini API credentials.
+
 ## Are examples mocked?
 
 No. Public examples are live-only. Deterministic providers, fake modules, and mocks belong in tests.

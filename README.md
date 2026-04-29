@@ -7,7 +7,7 @@
 [![Hex.pm](https://img.shields.io/hexpm/v/gepa_ex.svg)](https://hex.pm/packages/gepa_ex)
 [![Elixir](https://img.shields.io/badge/elixir-1.18.3-purple.svg)](https://elixir-lang.org)
 [![OTP](https://img.shields.io/badge/otp-27.3.3-blue.svg)](https://www.erlang.org)
-[![Tests](https://img.shields.io/badge/tests-925%2F925%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-927%2F927%20passing-brightgreen)]()
 [![Coverage](https://img.shields.io/badge/coverage-75.4%25-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/nshkrdotcom/gepa_ex/blob/main/LICENSE)
 
@@ -82,7 +82,7 @@ runtime without pulling extra infrastructure into the core package.
 | Surface | Current status | Remaining gap |
 | --- | --- | --- |
 | Core optimizer | Real implementation: Pareto frontiers, reflection, merge, persistence, callbacks, telemetry, and `optimize_anything` run in Elixir. | Continue tracking upstream semantics and edge cases; no GUI is planned. |
-| LLM adapters | Real normalized facade for ReqLLM and Agent Session Manager. GEPA keeps the `GEPA.LLM.*` compatibility API, but provider dispatch now delegates through the shared `:inference` adapter contracts. ASM/Gemini defaults to `gemini-3.1-flash-lite-preview`; ReqLLM/Gemini uses the same text model by default. | Provider coverage follows `:inference` plus the optional provider libraries installed by this app; upstream Python provider shims are not copied one-for-one. ASM structured output remains unsupported until ASM exposes that contract. |
+| LLM adapters | Real normalized facade for ReqLLM and Agent Session Manager. GEPA keeps the `GEPA.LLM.*` compatibility API, but provider dispatch now delegates through the shared `:inference` adapter contracts. ASM/Gemini defaults to `gemini-3.1-flash-lite-preview`; ReqLLM/Gemini uses the same text model by default. | Provider coverage follows `:inference` plus the optional provider libraries installed by this app; upstream Python provider shims are not copied one-for-one. ASM/Gemini uses the local Gemini CLI auth/runtime path, not a hosted API key. ASM structured output remains unsupported until ASM exposes that contract. |
 | Embeddings | Real `GEPA.Embeddings` behavior with `GEPA.Embeddings.ReqLLM`; default Gemini embedding model is `google:gemini-embedding-001`. | Other embedding providers can replace the behavior implementation later. Qdrant never creates embeddings. |
 | Generic RAG vector store | Real vector-store behavior, deterministic `InMemory` for tests, local Qdrant through Docker/HTTP, and explicit stubs for pgvector, Weaviate, LanceDB, Chroma, and Milvus. | Qdrant currently uses direct HTTP calls by design; a production client or larger vector subsystem can replace that module without changing Generic RAG call sites. |
 | Generic RAG adapter | Headless adapter pipeline with retrieval/generation metrics, injected embedder, and live Qdrant example using real embeddings plus real ASM/Gemini inference. | No hosted document-ingestion service is bundled. Non-Qdrant vector backends are stubs until implemented. |

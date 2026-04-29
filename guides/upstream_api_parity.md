@@ -79,8 +79,8 @@ Qdrant stores and searches vectors. Embeddings are generated separately through
 
 | Upstream area | Elixir target | Status |
 | --- | --- | --- |
-| LiteLLM language model | `GEPA.LLM`, `GEPA.LLM.Client`, `GEPA.LM`, `GEPA.LLM.Adapters.ReqLLM` | Implemented through the shared `:inference` ReqLLM adapter while preserving the GEPA facade. |
-| Agent CLI inference | `GEPA.LLM.Adapters.AgentSessionManager` | Implemented through the shared `:inference` ASM adapter for Claude, Codex, Gemini, and Amp while preserving the GEPA facade. |
+| LiteLLM language model | `GEPA.LLM`, `GEPA.LLM.Client`, `GEPA.LM`, `GEPA.LLM.Adapters.ReqLLM` | Implemented through the shared `:inference` ReqLLM adapter while preserving the GEPA facade, system prompts, message-list prompts, tool choice, usage, provider cost, and tool-call fields. |
+| Agent CLI inference | `GEPA.LLM.Adapters.AgentSessionManager` | Implemented through the shared `:inference` ASM adapter for Claude, Codex, Gemini, and Amp while preserving the GEPA facade. ASM/Gemini defaults to `gemini-3.1-flash-lite-preview` through the local Gemini CLI runtime/auth path. |
 | Embeddings | `GEPA.Embeddings`, `GEPA.Embeddings.ReqLLM` | Implemented. Default Gemini embedding path is live-tested by the Qdrant example. |
 | Cost tracking | `GEPA.LM`, `GEPA.LLM.Tracking`, `GEPA.Tracking` | Implemented local counters and tracker calls. |
 | Experiment tracker | `GEPA.Tracking.ExperimentTracker` and `GEPA.Tracking` | Implemented local tracker with W&B/MLflow replaceable stubs. |

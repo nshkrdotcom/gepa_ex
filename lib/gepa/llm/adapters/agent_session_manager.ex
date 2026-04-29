@@ -191,7 +191,7 @@ defmodule GEPA.LLM.Adapters.AgentSessionManager do
     |> Enum.reject(fn {_key, value} -> is_nil(value) or value == [] end)
   end
 
-  defp request_text(%Request{} = request), do: Request.to_text(Request.prompt(request))
+  defp request_text(%Request{} = request), do: Request.to_text(request)
 
   defp normalize_provider_opts(provider_opts) do
     provider_opts

@@ -44,6 +44,7 @@ GEPA.LLM.req_llm(:anthropic)
 Local CLI-backed providers use `GEPA.LLM.agent/2`:
 
 ```elixir
+GEPA.LLM.agent(:gemini, provider_opts: [model: "gemini-3.1-flash-lite-preview"])
 GEPA.LLM.agent(:codex, lane: :core, session: "gepa-run")
 GEPA.LLM.agent(:claude, lane: :auto)
 ```
@@ -53,6 +54,10 @@ Those are LLM adapters. They are separate from task adapters such as `GEPA.Adapt
 The LLM facade uses the shared `:inference` package under the hood. Keep using
 `GEPA.LLM.*` from GEPA code; add new provider behavior to `:inference` so the
 same adapter contracts can be reused by other nshkr Elixir systems.
+
+ReqLLM/Gemini and GeminiEx-backed paths use hosted API keys. The ASM/Gemini
+path uses the local Gemini CLI runtime/auth path exposed by Agent Session
+Manager; it should not be treated as blocked on `GEMINI_API_KEY`.
 
 ## Installation
 

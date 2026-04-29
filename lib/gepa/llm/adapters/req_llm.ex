@@ -156,7 +156,7 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
 
   defp run_inference(%__MODULE__{} = state, %Request{} = request, response_format) do
     opts = inference_request_opts(state, request, response_format)
-    Inference.complete(inference_client(state, request), request_text(request), opts)
+    Inference.complete(inference_client(state, request), request_input(request), opts)
   rescue
     error -> {:error, Exception.message(error)}
   end
@@ -166,7 +166,10 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
      %Response{
        text: Inference.Response.text(response),
        object: response.object,
+       tool_calls: response.tool_calls,
+       tool_results: value(response.raw, :tool_results) || [],
        usage: response.usage,
+       cost: response.cost || response.metadata[:cost] || value(response.raw, :cost),
        stop_reason: response.finish_reason,
        adapter: adapter,
        provider: response.provider,
@@ -224,7 +227,8 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
       |> Keyword.merge(request.provider_opts)
       |> maybe_put(:api_key, request_api_key(state, request))
       |> maybe_put(:tools, request.tools)
-      |> maybe_put(:prompt, Request.prompt(request))
+      |> maybe_put(:tool_choice, request.tool_choice)
+      |> maybe_put(:prompt, request_input(request))
 
     [
       temperature: request.temperature,
@@ -241,7 +245,21 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
     Keyword.get(request.provider_opts, :api_key) || state.api_key
   end
 
-  defp request_text(%Request{} = request), do: Request.to_text(Request.prompt(request))
+  defp request_input(%Request{system: system} = request)
+       when is_binary(system) and system != "" do
+    case Request.prompt(request) do
+      messages when is_list(messages) ->
+        [%{role: :system, content: system} | messages]
+
+      prompt when is_binary(prompt) ->
+        [%{role: :system, content: system}, %{role: :user, content: prompt}]
+
+      nil ->
+        [%{role: :system, content: system}]
+    end
+  end
+
+  defp request_input(%Request{} = request), do: Request.prompt(request)
 
   defp state_defaults(%__MODULE__{} = state) do
     [
@@ -269,4 +287,11 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, _key, []), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp value(%{__struct__: _} = map, key), do: Map.get(map, key)
+
+  defp value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp value(_other, _key), do: nil
 end

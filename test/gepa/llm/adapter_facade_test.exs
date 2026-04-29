@@ -10,7 +10,14 @@ defmodule GEPA.LLM.AdapterFacadeTest do
     end
 
     def generate_text(model_spec, prompt, opts) do
-      {:ok, %{text: "text:#{model_spec}:#{prompt}", usage: %{tokens: 7}, opts: opts}}
+      {:ok,
+       %{
+         text: "text:#{model_spec}:#{prompt_label(prompt)}",
+         usage: %{tokens: 7},
+         cost: %{usd: 0.001},
+         tool_calls: [%{id: "call-1", name: "lookup", arguments: %{"query" => "hello"}}],
+         opts: opts
+       }}
     end
 
     def generate_object(model_spec, prompt, schema, opts) do
@@ -21,6 +28,9 @@ defmodule GEPA.LLM.AdapterFacadeTest do
          opts: opts
        }}
     end
+
+    defp prompt_label(prompt) when is_binary(prompt), do: prompt
+    defp prompt_label(prompt), do: inspect(prompt)
   end
 
   defmodule FakeReqLLMResponse do
@@ -186,6 +196,34 @@ defmodule GEPA.LLM.AdapterFacadeTest do
       assert {:ok, response} = client.adapter.complete(client, request)
       assert [%ReqLLM.Tool{name: "lookup"}] = response.raw.opts[:tools]
     end
+
+    test "propagates system prompts, tool choice, cost, and tool calls through inference" do
+      client =
+        GEPA.LLM.req_llm(:openai,
+          api_key: "sk-test",
+          req_llm_module: FakeReqLLM,
+          response_module: FakeReqLLMResponse
+        )
+
+      request =
+        Request.from_prompt("hello",
+          system: "be exact",
+          tool_choice: :required,
+          provider_opts: [api_key: "request-key"]
+        )
+
+      assert {:ok, response} = client.adapter.complete(client, request)
+      assert response.text =~ "text:openai:gpt-5.4-mini:"
+      assert response.text =~ "%{role: :system, content: \"be exact\"}"
+      assert response.text =~ "%{role: :user, content: \"hello\"}"
+      assert response.raw.opts[:api_key] == "request-key"
+      assert response.raw.opts[:tool_choice] == :required
+      assert response.cost == %{usd: 0.001}
+
+      assert response.tool_calls == [
+               %{id: "call-1", name: "lookup", arguments: %{"query" => "hello"}}
+             ]
+    end
   end
 
   describe "ASM client facade" do
@@ -271,6 +309,16 @@ defmodule GEPA.LLM.AdapterFacadeTest do
       assert opts[:provider] == :codex
       assert opts[:session_id] == "gepa-stream"
       assert opts[:lane] == :core
+      assert_received {:stop_session, pid} when pid == self()
+    end
+
+    test "stream/3 closes managed ASM sessions when consumers halt early" do
+      client = GEPA.LLM.agent(:codex, asm_module: FakeASM, lane: :core, session: "gepa-stream")
+
+      assert {:ok, stream} = GEPA.LLM.stream(client, "hello")
+      assert Enum.take(stream, 1) == ["a"]
+      assert_received {:start_session, opts}
+      assert opts[:session_id] == "gepa-stream"
       assert_received {:stop_session, pid} when pid == self()
     end
 

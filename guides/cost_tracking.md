@@ -22,7 +22,10 @@ GEPA.optimize(
 
 ## ReqLLM
 
-ReqLLM-backed clients can expose usage and cost metadata for hosted providers. Availability depends on the provider response and model registry metadata.
+ReqLLM-backed clients expose usage, provider-reported cost, and tool-call fields
+when the hosted provider returns them through the shared `:inference` response
+contract. Availability still depends on the provider response and model registry
+metadata.
 
 Use `GEPA.LLM.complete/3` through the facade so cost metadata stays normalized on `GEPA.LLM.Response`.
 

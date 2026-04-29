@@ -35,6 +35,9 @@
 - Fixed confidence adapter documentation and examples to use the actual Elixir option names and provider capabilities.
 - Fixed live example runner behavior so the confidence adapter uses ReqLLM structured output even when the rest of the suite is using Agent Session Manager.
 - Fixed README test badge count after the public API tests were added.
+- Fixed the GEPA-to-`:inference` LLM bridge so system prompts, ReqLLM
+  `:tool_choice`, provider-reported cost, and tool-call response fields remain
+  normalized across the compatibility boundary.
 
 ### Docs
 - Added a durable upstream API parity guide that records implemented, represented, stubbed, and WONT BUILD surfaces.
