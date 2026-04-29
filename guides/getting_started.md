@@ -50,6 +50,10 @@ GEPA.LLM.agent(:claude, lane: :auto)
 
 Those are LLM adapters. They are separate from task adapters such as `GEPA.Adapters.Basic`, `GEPA.Adapters.Default`, or your own `GEPA.Adapter` implementation.
 
+The LLM facade uses the shared `:inference` package under the hood. Keep using
+`GEPA.LLM.*` from GEPA code; add new provider behavior to `:inference` so the
+same adapter contracts can be reused by other nshkr Elixir systems.
+
 ## Installation
 
 Add the package to `mix.exs`:

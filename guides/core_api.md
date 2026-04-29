@@ -10,7 +10,7 @@
 
 If `:adapter` is omitted, GEPA can build the default adapter when you provide `:task_lm` or `:model`. If `:valset` is omitted, the training set is reused.
 
-`GEPA.Adapter` is the task adapter contract. LLM clients such as `GEPA.LLM.req_llm(:openai)` and `GEPA.LLM.agent(:codex)` are usually passed into a task adapter or into reflection options.
+`GEPA.Adapter` is the task adapter contract. LLM clients such as `GEPA.LLM.req_llm(:openai)` and `GEPA.LLM.agent(:codex)` are usually passed into a task adapter or into reflection options. GEPA preserves that public facade while delegating provider execution through the shared `:inference` contracts.
 
 ## Search Controls
 

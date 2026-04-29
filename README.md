@@ -67,7 +67,7 @@ For evaluator-driven tasks, use `GEPA.OptimizeAnything.optimize_anything/1` and 
 - Adapter contract plus shipped adapters for Q&A, default chat-style tasks, Generic RAG, confidence scoring, ReqLLM, Agent Session Manager, and testing
 - Embedding behavior with a ReqLLM-backed Gemini embedding provider
 - Generic RAG vector-store behavior with in-memory tests, real local Qdrant, and explicit stubs for pgvector, Weaviate, LanceDB, Chroma, and Milvus
-- LLM facade with structured output support, streaming, and provider normalization
+- LLM facade with structured output support, streaming, and provider normalization through the shared `:inference` contracts
 - Candidate proposal, batch sampling, and selection strategies including epsilon-greedy
 - Telemetry, callbacks, tracking, and terminal progress output
 - Result serialization and utility modules for code execution and evaluation caching
@@ -82,7 +82,7 @@ runtime without pulling extra infrastructure into the core package.
 | Surface | Current status | Remaining gap |
 | --- | --- | --- |
 | Core optimizer | Real implementation: Pareto frontiers, reflection, merge, persistence, callbacks, telemetry, and `optimize_anything` run in Elixir. | Continue tracking upstream semantics and edge cases; no GUI is planned. |
-| LLM adapters | Real normalized facade for ReqLLM and Agent Session Manager. ASM/Gemini defaults to `gemini-3.1-flash-lite-preview`; ReqLLM/Gemini uses the same text model by default. | Provider coverage follows those libraries; upstream Python provider shims are not copied one-for-one. ASM structured output remains unsupported until ASM exposes that contract. |
+| LLM adapters | Real normalized facade for ReqLLM and Agent Session Manager. GEPA keeps the `GEPA.LLM.*` compatibility API, but provider dispatch now delegates through the shared `:inference` adapter contracts. ASM/Gemini defaults to `gemini-3.1-flash-lite-preview`; ReqLLM/Gemini uses the same text model by default. | Provider coverage follows `:inference` plus the optional provider libraries installed by this app; upstream Python provider shims are not copied one-for-one. ASM structured output remains unsupported until ASM exposes that contract. |
 | Embeddings | Real `GEPA.Embeddings` behavior with `GEPA.Embeddings.ReqLLM`; default Gemini embedding model is `google:gemini-embedding-001`. | Other embedding providers can replace the behavior implementation later. Qdrant never creates embeddings. |
 | Generic RAG vector store | Real vector-store behavior, deterministic `InMemory` for tests, local Qdrant through Docker/HTTP, and explicit stubs for pgvector, Weaviate, LanceDB, Chroma, and Milvus. | Qdrant currently uses direct HTTP calls by design; a production client or larger vector subsystem can replace that module without changing Generic RAG call sites. |
 | Generic RAG adapter | Headless adapter pipeline with retrieval/generation metrics, injected embedder, and live Qdrant example using real embeddings plus real ASM/Gemini inference. | No hosted document-ingestion service is bundled. Non-Qdrant vector backends are stubs until implemented. |

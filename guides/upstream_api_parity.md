@@ -79,8 +79,8 @@ Qdrant stores and searches vectors. Embeddings are generated separately through
 
 | Upstream area | Elixir target | Status |
 | --- | --- | --- |
-| LiteLLM language model | `GEPA.LLM`, `GEPA.LLM.Client`, `GEPA.LM`, `GEPA.LLM.Adapters.ReqLLM` | Implemented through ReqLLM. |
-| Agent CLI inference | `GEPA.LLM.Adapters.AgentSessionManager` | Implemented for Claude, Codex, Gemini, and Amp via Agent Session Manager. |
+| LiteLLM language model | `GEPA.LLM`, `GEPA.LLM.Client`, `GEPA.LM`, `GEPA.LLM.Adapters.ReqLLM` | Implemented through the shared `:inference` ReqLLM adapter while preserving the GEPA facade. |
+| Agent CLI inference | `GEPA.LLM.Adapters.AgentSessionManager` | Implemented through the shared `:inference` ASM adapter for Claude, Codex, Gemini, and Amp while preserving the GEPA facade. |
 | Embeddings | `GEPA.Embeddings`, `GEPA.Embeddings.ReqLLM` | Implemented. Default Gemini embedding path is live-tested by the Qdrant example. |
 | Cost tracking | `GEPA.LM`, `GEPA.LLM.Tracking`, `GEPA.Tracking` | Implemented local counters and tracker calls. |
 | Experiment tracker | `GEPA.Tracking.ExperimentTracker` and `GEPA.Tracking` | Implemented local tracker with W&B/MLflow replaceable stubs. |

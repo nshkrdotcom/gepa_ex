@@ -1,13 +1,12 @@
 defmodule GEPA.LLM.Adapters.ReqLLM do
   @moduledoc """
-  GEPA LLM adapter backed by ReqLLM.
+  GEPA compatibility adapter backed by the shared `:inference` ReqLLM adapter.
 
-  This adapter owns all ReqLLM-specific model specs, API-key wiring, response
-  normalization, and test injection seams. GEPA optimizer/proposer code should
-  only see `GEPA.LLM.Client`, `GEPA.LLM.Request`, and `GEPA.LLM.Response`.
+  This module preserves the public `GEPA.LLM.Client` surface while moving
+  provider-specific ReqLLM behavior into `Inference.Adapters.ReqLLM`.
   """
 
-  alias GEPA.LLM.{Client, Request, Response, Tool}
+  alias GEPA.LLM.{Client, Request, Response}
 
   defstruct [
     :provider,
@@ -20,6 +19,7 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
     :req_llm_module,
     :response_module,
     :env,
+    :inference_client,
     req_options: [],
     provider_opts: []
   ]
@@ -37,7 +37,8 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
           provider_opts: keyword(),
           req_llm_module: module(),
           response_module: module(),
-          env: (String.t() -> String.t() | nil)
+          env: (String.t() -> String.t() | nil),
+          inference_client: Inference.Client.t() | nil
         }
 
   @providers [:openai, :gemini, :anthropic]
@@ -51,12 +52,6 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   @default_temperature 0.7
   @default_max_tokens 2000
   @default_timeout 60_000
-
-  @env_vars %{
-    gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-    openai: ["OPENAI_API_KEY"],
-    anthropic: ["ANTHROPIC_API_KEY"]
-  }
 
   @instruction_schema [
     instruction: [type: :string, required: true, doc: "The improved instruction text."]
@@ -76,7 +71,7 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
          model: state.model,
          defaults: state_defaults(state),
          capabilities: MapSet.new([:text, :messages, :structured_output, :tools, :cost]),
-         metadata: %{temporary_facade?: true}
+         metadata: %{inference_adapter: Inference.Adapters.ReqLLM}
        }}
     end
   end
@@ -95,34 +90,30 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   @spec build_state(keyword()) :: {:ok, t()} | {:error, term()}
   def build_state(opts) do
     with {:ok, provider} <- fetch_provider(opts) do
-      {:ok,
-       %__MODULE__{
-         provider: provider,
-         model: Keyword.get(opts, :model, @default_models[provider]),
-         api_key: Keyword.get(opts, :api_key),
-         temperature: Keyword.get(opts, :temperature, @default_temperature),
-         max_tokens: Keyword.get(opts, :max_tokens, @default_max_tokens),
-         top_p: Keyword.get(opts, :top_p),
-         timeout: Keyword.get(opts, :timeout, @default_timeout),
-         req_options: Keyword.get(opts, :req_options, []),
-         provider_opts: Keyword.get(opts, :provider_opts, []),
-         req_llm_module: Keyword.get(opts, :req_llm_module, ReqLLM),
-         response_module: Keyword.get(opts, :response_module, ReqLLM.Response),
-         env: Keyword.get(opts, :env, &System.get_env/1)
-       }}
+      state = %__MODULE__{
+        provider: provider,
+        model: Keyword.get(opts, :model, @default_models[provider]),
+        api_key: Keyword.get(opts, :api_key),
+        temperature: Keyword.get(opts, :temperature, @default_temperature),
+        max_tokens: Keyword.get(opts, :max_tokens, @default_max_tokens),
+        top_p: Keyword.get(opts, :top_p),
+        timeout: Keyword.get(opts, :timeout, @default_timeout),
+        req_options: Keyword.get(opts, :req_options, []),
+        provider_opts: Keyword.get(opts, :provider_opts, []),
+        req_llm_module: Keyword.get(opts, :req_llm_module, ReqLLM),
+        response_module: Keyword.get(opts, :response_module, ReqLLM.Response),
+        env: Keyword.get(opts, :env, &System.get_env/1)
+      }
+
+      {:ok, %{state | inference_client: inference_client(state)}}
     end
   end
 
   @spec complete(Client.t(), Request.t()) :: {:ok, Response.t()} | {:error, term()}
   def complete(%Client{adapter_state: %__MODULE__{} = state}, %Request{} = request) do
-    if request.schema do
-      generate_object(state, request)
-    else
-      generate_text(state, request)
-    end
-  rescue
-    error ->
-      {:error, Exception.message(error)}
+    state
+    |> run_inference(request, nil)
+    |> map_result(__MODULE__)
   end
 
   @spec stream(Client.t(), Request.t()) :: {:error, term()}
@@ -141,7 +132,10 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
   def complete_legacy(%__MODULE__{} = state, prompt, opts \\ []) when is_binary(prompt) do
     request = Request.from_prompt(prompt, opts)
 
-    with {:ok, %Response{} = response} <- safe_generate_text(state, request) do
+    with {:ok, %Response{} = response} <-
+           state
+           |> run_inference(request, nil)
+           |> map_result(__MODULE__) do
       {:ok, Response.text(response)}
     end
   end
@@ -151,101 +145,103 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
       when is_binary(prompt) do
     request = Request.structured(prompt, Keyword.put_new(opts, :schema, @instruction_schema))
 
-    case safe_generate_object(state, request) do
-      {:ok, %Response{object: object}} when is_map(object) ->
-        {:ok, object}
-
-      {:ok, %Response{} = response} ->
-        {:ok, %{"instruction" => Response.text(response)}}
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp safe_generate_text(%__MODULE__{} = state, %Request{} = request) do
-    generate_text(state, request)
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
-
-  defp safe_generate_object(%__MODULE__{} = state, %Request{} = request) do
-    generate_object(state, request)
-  rescue
-    error -> {:error, Exception.message(error)}
-  end
-
-  defp generate_text(%__MODULE__{} = state, %Request{} = request) do
-    api_key = request_api_key(request, state)
-
-    with {:ok, model} <- required_value(:model, request.model || state.model),
-         :ok <- maybe_put_provider_key(state, api_key),
-         {:ok, response} <-
-           state.req_llm_module.generate_text(
-             model_spec(state.provider, model),
-             Request.prompt(request),
-             build_request_opts(state, request, api_key)
-           ) do
-      {:ok, normalize_response(state, request, response)}
-    else
+    case state
+         |> run_inference(request, request.schema || @instruction_schema)
+         |> map_result(__MODULE__) do
+      {:ok, %Response{object: object}} when is_map(object) -> {:ok, object}
+      {:ok, %Response{} = response} -> {:ok, %{"instruction" => Response.text(response)}}
       {:error, _} = error -> error
     end
   end
 
-  defp generate_object(%__MODULE__{} = state, %Request{} = request) do
-    api_key = request_api_key(request, state)
-
-    with {:ok, model} <- required_value(:model, request.model || state.model),
-         :ok <- maybe_put_provider_key(state, api_key),
-         {:ok, response} <-
-           state.req_llm_module.generate_object(
-             model_spec(state.provider, model),
-             Request.prompt(request),
-             request.schema || @instruction_schema,
-             build_request_opts(state, request, api_key)
-           ),
-         {:ok, object} <- state.response_module.unwrap_object(response) do
-      {:ok, normalize_response(state, request, response, object)}
-    else
-      {:error, _} = error -> error
-    end
+  defp run_inference(%__MODULE__{} = state, %Request{} = request, response_format) do
+    opts = inference_request_opts(state, request, response_format)
+    Inference.complete(inference_client(state, request), request_text(request), opts)
+  rescue
+    error -> {:error, Exception.message(error)}
   end
 
-  defp normalize_response(%__MODULE__{} = state, %Request{} = request, response, object \\ nil) do
-    text =
-      case object do
-        %{"instruction" => instruction} when is_binary(instruction) ->
-          instruction
+  defp map_result({:ok, %Inference.Response{} = response}, adapter) do
+    {:ok,
+     %Response{
+       text: Inference.Response.text(response),
+       object: response.object,
+       usage: response.usage,
+       stop_reason: response.finish_reason,
+       adapter: adapter,
+       provider: response.provider,
+       model: response.model,
+       raw: response.raw,
+       metadata: response.metadata
+     }}
+  end
 
-        %{instruction: instruction} when is_binary(instruction) ->
-          instruction
+  defp map_result({:error, error}, _adapter), do: {:error, error}
 
-        _ ->
-          state.response_module.text(response) || ""
-      end
-
-    %Response{
-      text: text,
-      object: object,
-      usage: response_field(response, :usage),
-      stop_reason: response_field(response, :finish_reason),
-      adapter: __MODULE__,
+  defp inference_client(%__MODULE__{} = state) do
+    Inference.Client.new!(
+      adapter: Inference.Adapters.ReqLLM,
       provider: state.provider,
-      model: request.model || state.model,
-      raw: response,
-      metadata: %{
-        model_spec: model_spec(state.provider, request.model || state.model)
-      }
+      model: state.model,
+      defaults: inference_defaults(state),
+      adapter_opts: [
+        req_llm_module: state.req_llm_module,
+        response_module: state.response_module,
+        api_key: state.api_key,
+        env: state.env,
+        model_spec: model_spec(state.provider, state.model)
+      ]
+    )
+  end
+
+  defp inference_client(%__MODULE__{} = state, %Request{} = request) do
+    client = state.inference_client || inference_client(state)
+    model = request.model || state.model
+
+    %{
+      client
+      | model: model,
+        adapter_opts:
+          Keyword.put(client.adapter_opts, :model_spec, model_spec(state.provider, model))
     }
   end
 
-  defp fetch_provider(opts) do
-    case Keyword.fetch(opts, :provider) do
-      {:ok, provider} when provider in @providers -> {:ok, provider}
-      {:ok, provider} -> {:error, {:invalid_provider, provider, @providers}}
-      :error -> {:error, :missing_provider}
-    end
+  defp inference_defaults(%__MODULE__{} = state) do
+    [
+      temperature: state.temperature,
+      max_tokens: state.max_tokens,
+      top_p: state.top_p,
+      receive_timeout: state.timeout
+    ]
+    |> Keyword.merge(state.req_options)
+    |> Keyword.merge(state.provider_opts)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
+
+  defp inference_request_opts(%__MODULE__{} = state, %Request{} = request, response_format) do
+    provider_opts =
+      state.provider_opts
+      |> Keyword.merge(request.provider_opts)
+      |> maybe_put(:api_key, request_api_key(state, request))
+      |> maybe_put(:tools, request.tools)
+      |> maybe_put(:prompt, Request.prompt(request))
+
+    [
+      temperature: request.temperature,
+      model: request.model,
+      max_tokens: request.max_tokens,
+      top_p: request.top_p,
+      response_format: response_format || request.schema,
+      options: provider_opts
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == [] end)
+  end
+
+  defp request_api_key(%__MODULE__{} = state, %Request{} = request) do
+    Keyword.get(request.provider_opts, :api_key) || state.api_key
+  end
+
+  defp request_text(%Request{} = request), do: Request.to_text(Request.prompt(request))
 
   defp state_defaults(%__MODULE__{} = state) do
     [
@@ -258,92 +254,19 @@ defmodule GEPA.LLM.Adapters.ReqLLM do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  defp build_request_opts(%__MODULE__{} = state, %Request{} = request, api_key) do
-    state
-    |> base_request_opts(request, api_key)
-    |> maybe_add_opt(:top_p, request.top_p || state.top_p)
-    |> Keyword.merge(state.req_options)
-    |> Keyword.merge(state.provider_opts)
-    |> Keyword.merge(request.provider_opts)
-    |> maybe_add_tools(request.tools)
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  defp fetch_provider(opts) do
+    case Keyword.fetch(opts, :provider) do
+      {:ok, provider} when provider in @providers -> {:ok, provider}
+      {:ok, provider} -> {:error, {:invalid_provider, provider, @providers}}
+      :error -> {:error, :missing_provider}
+    end
   end
-
-  defp base_request_opts(%__MODULE__{} = state, %Request{} = request, api_key) do
-    [
-      temperature: request.temperature || state.temperature || @default_temperature,
-      max_tokens: request.max_tokens || state.max_tokens || @default_max_tokens,
-      receive_timeout: request.timeout || state.timeout
-    ]
-    |> maybe_add_opt(:api_key, api_key)
-  end
-
-  defp maybe_add_opt(list, _key, nil), do: list
-  defp maybe_add_opt(list, key, value), do: Keyword.put(list, key, value)
-
-  defp maybe_add_tools(opts, []), do: opts
-
-  defp maybe_add_tools(opts, tools) when is_list(tools) do
-    Keyword.put(opts, :tools, Enum.map(tools, &to_req_llm_tool/1))
-  end
-
-  defp to_req_llm_tool(%Tool{} = tool) do
-    callback =
-      if is_function(tool.run, 2) do
-        fn args -> tool.run.(args, %{}) end
-      else
-        tool.run
-      end
-
-    {:ok, req_tool} =
-      ReqLLM.Tool.new(
-        name: tool.name,
-        description: tool.description,
-        parameter_schema: tool.input_schema,
-        callback: callback
-      )
-
-    req_tool
-  end
-
-  defp to_req_llm_tool(tool), do: tool
-
-  defp request_api_key(%Request{} = request, %__MODULE__{} = state) do
-    Keyword.get(request.provider_opts, :api_key) || state.api_key || env_api_key(state)
-  end
-
-  defp env_api_key(%__MODULE__{} = state) do
-    @env_vars
-    |> Map.fetch!(state.provider)
-    |> Enum.find_value(fn key ->
-      case state.env.(key) do
-        value when is_binary(value) and value != "" -> value
-        _other -> nil
-      end
-    end)
-  end
-
-  defp maybe_put_provider_key(%__MODULE__{}, nil), do: :ok
-
-  defp maybe_put_provider_key(%__MODULE__{} = state, api_key) do
-    state.req_llm_module.put_key(provider_key(state.provider), api_key)
-  end
-
-  defp required_value(_key, value) when value not in [nil, ""], do: {:ok, value}
-  defp required_value(key, _value), do: {:error, "missing required option :#{key}"}
 
   defp model_spec(:openai, model), do: "openai:#{model}"
   defp model_spec(:gemini, model), do: "google:#{model}"
   defp model_spec(:anthropic, model), do: "anthropic:#{model}"
 
-  defp provider_key(:openai), do: :openai_api_key
-  defp provider_key(:gemini), do: :google_api_key
-  defp provider_key(:anthropic), do: :anthropic_api_key
-
-  defp response_field(%field{} = response, key) when is_atom(field), do: Map.get(response, key)
-
-  defp response_field(response, key) when is_map(response),
-    do: Map.get(response, key) || Map.get(response, Atom.to_string(key))
-
-  defp response_field(_response, _key), do: nil
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, _key, []), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

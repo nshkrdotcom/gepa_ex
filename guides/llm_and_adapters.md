@@ -11,6 +11,8 @@ Use "provider" for the selected model backend, such as `:openai` or `:codex`. Us
 
 `GEPA.LLM` is the public model-access facade. It returns either a normalized `GEPA.LLM.Client` or a backward-compatible struct that still dispatches through the same adapter code.
 
+Internally, the provider-facing work is delegated through the shared `:inference` package. GEPA keeps its own `GEPA.LLM.Request`, `GEPA.LLM.Response`, and `GEPA.LLM.Client` structs as compatibility shapes for optimizer code, docs, and older callers; those structs are translated at the adapter boundary into `Inference.Request`, `Inference.Response`, and `Inference.Client`. New provider behavior should be added to `:inference`, not copied into GEPA-local adapters.
+
 - `GEPA.LLM.req_llm/2` builds a hosted-provider client backed by ReqLLM.
 - `GEPA.LLM.agent/2` builds a local CLI/agent client backed by Agent Session Manager.
 - `GEPA.LLM.new/2` builds either adapter family from `:req_llm`, `:agent_session_manager`, or `:asm`.
@@ -23,7 +25,7 @@ The normalized request and response structs are `GEPA.LLM.Request` and `GEPA.LLM
 
 ## Hosted Providers
 
-Hosted providers go through `GEPA.LLM.Adapters.ReqLLM`.
+Hosted providers go through `GEPA.LLM.Adapters.ReqLLM`, which is now a GEPA compatibility wrapper around `Inference.Adapters.ReqLLM`.
 
 | Provider | Builder | Default model | API key lookup | Capabilities |
 | --- | --- | --- | --- | --- |
@@ -67,7 +69,7 @@ llm =
 
 ## Local Agent Providers
 
-Local CLI-backed providers go through `GEPA.LLM.Adapters.AgentSessionManager`.
+Local CLI-backed providers go through `GEPA.LLM.Adapters.AgentSessionManager`, which is now a GEPA compatibility wrapper around `Inference.Adapters.ASM`.
 
 | Provider | Builder | Default model | Lanes | Capabilities |
 | --- | --- | --- | --- | --- |
@@ -97,7 +99,7 @@ Streaming is exposed on the ASM path:
 Enum.each(stream, &IO.write/1)
 ```
 
-ASM structured output is intentionally unsupported until ASM exposes a native structured-output contract. `GEPA.LLM.complete_structured/3` fails closed with `{:unsupported_capability, :structured_output, context}` for ASM clients.
+ASM structured output is intentionally unsupported until ASM exposes a native structured-output contract through `:inference`. `GEPA.LLM.complete_structured/3` fails closed with `{:unsupported_capability, :structured_output, context}` for ASM clients.
 
 ## Embeddings
 

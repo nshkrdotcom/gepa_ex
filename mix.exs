@@ -49,6 +49,7 @@ defmodule GepaEx.MixProject do
       {:telemetry, "~> 1.4"},
 
       # LLM integration
+      {:inference, path: "../inference/apps/inference"},
       {:req_llm, "~> 1.10"},
       {:agent_session_manager, "~> 0.9.2"},
       {:req, "~> 0.5.17"},
