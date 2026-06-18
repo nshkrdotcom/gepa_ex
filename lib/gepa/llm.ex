@@ -8,7 +8,7 @@ defmodule GEPA.LLM do
   of that surface they support.
   """
 
-  alias GEPA.LLM.{Adapters, Client, Mock, ReqLLM, Request, Response, Tracking}
+  alias GEPA.LLM.{Client, Mock, Request, Response, Tracking}
 
   @type prompt :: String.t() | [map()]
   @type t :: module() | map() | Client.t() | function()
@@ -25,33 +25,33 @@ defmodule GEPA.LLM do
 
   @optional_callbacks complete_structured: 3
 
-  @doc "Builds a normalized GEPA LLM client."
-  @spec new(:req_llm | :agent_session_manager | :asm, keyword()) :: Client.t()
-  def new(:req_llm, opts) do
-    provider = Keyword.fetch!(opts, :provider)
-    req_llm(provider, Keyword.delete(opts, :provider))
-  end
+  @instruction_schema [
+    instruction: [type: :string, required: true, doc: "The improved instruction text."]
+  ]
 
-  def new(adapter, opts) when adapter in [:agent_session_manager, :asm] do
-    provider = Keyword.fetch!(opts, :provider)
-    agent(provider, Keyword.delete(opts, :provider))
-  end
+  @removed_provider_msg """
+  Built-in GEPA.LLM providers (ReqLLM and Agent Session Manager) were removed because \
+  they depended on the unpublished `:inference` package. Supply your own LLM instead: a \
+  `fn prompt -> {:ok, text} end` callable, a `%GEPA.LLM.Client{}`, or `GEPA.LLM.Mock`.\
+  """
 
-  @doc "Builds a hosted-provider client backed by ReqLLM."
-  @spec req_llm(atom(), keyword()) :: Client.t()
-  def req_llm(provider, opts \\ []) when is_atom(provider) do
-    opts
-    |> Keyword.put(:provider, provider)
-    |> Adapters.ReqLLM.new!()
-  end
+  @doc """
+  Removed. The built-in ReqLLM and Agent-Session-Manager providers depended on the
+  unpublished `:inference` package. Inject your own LLM (a callable, a
+  `%GEPA.LLM.Client{}`, or `GEPA.LLM.Mock`) wherever an `t:t/0` is expected.
+  """
+  @spec new(atom(), keyword()) :: no_return()
+  def new(_adapter, _opts), do: raise(ArgumentError, @removed_provider_msg)
 
-  @doc "Builds a local CLI/agent client backed by Agent Session Manager."
-  @spec agent(atom(), keyword()) :: Client.t()
-  def agent(provider, opts \\ []) when is_atom(provider) do
-    opts
-    |> Keyword.put(:provider, provider)
-    |> Adapters.AgentSessionManager.new!()
-  end
+  @doc "Removed. Provide your own LLM callable. See `new/2`."
+  @spec req_llm(atom()) :: no_return()
+  @spec req_llm(atom(), keyword()) :: no_return()
+  def req_llm(_provider, _opts \\ []), do: raise(ArgumentError, @removed_provider_msg)
+
+  @doc "Removed. Provide your own LLM callable. See `new/2`."
+  @spec agent(atom()) :: no_return()
+  @spec agent(atom(), keyword()) :: no_return()
+  def agent(_provider, _opts \\ []), do: raise(ArgumentError, @removed_provider_msg)
 
   @doc "Wrap a one- or two-arity callable in a cost/token tracking LLM."
   @spec track(function() | t()) :: Tracking.t() | t()
@@ -114,7 +114,7 @@ defmodule GEPA.LLM do
     request =
       Request.structured(
         prompt,
-        Keyword.put_new(opts, :schema, Adapters.ReqLLM.instruction_schema())
+        Keyword.put_new(opts, :schema, @instruction_schema)
       )
 
     with {:ok, %Response{object: object} = response} <- client.adapter.complete(client, request) do
@@ -192,17 +192,21 @@ defmodule GEPA.LLM do
   defp normalize_callable_response(%{text: text}) when is_binary(text), do: {:ok, text}
   defp normalize_callable_response(other), do: {:ok, to_string(other)}
 
-  @doc "Returns the default LLM provider based on application configuration."
+  @doc """
+  Returns the default LLM. With no configured provider this is `GEPA.LLM.Mock`;
+  there are no built-in network providers, so inject your own callable for those.
+  """
   @spec default() :: t()
   def default do
     config = Application.get_env(:gepa_ex, :llm, [])
-    provider = Keyword.get(config, :provider, :openai)
-    build_default_llm(provider, config)
-  end
 
-  defp build_default_llm(:mock, _config), do: Mock.new()
+    case Keyword.get(config, :provider, :mock) do
+      :mock ->
+        Mock.new()
 
-  defp build_default_llm(provider, config) do
-    ReqLLM.new(Keyword.put(config, :provider, provider))
+      other ->
+        raise ArgumentError,
+              "no built-in LLM provider #{inspect(other)}. " <> @removed_provider_msg
+    end
   end
 end

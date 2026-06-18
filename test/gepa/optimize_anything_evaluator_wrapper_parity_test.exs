@@ -4,22 +4,8 @@ defmodule GEPA.OptimizeAnythingEvaluatorWrapperParityTest do
   import ExUnit.CaptureIO
   import ExUnit.CaptureLog
 
-  alias GEPA.LLM.Client
   alias GEPA.OptimizeAnything
   alias GEPA.OptimizeAnything.{Adapter, EvaluatorWrapper, OptimizationState}
-
-  defmodule FakeReqLLM do
-    def put_key(_provider, _api_key), do: :ok
-
-    def generate_text(model_spec, prompt, opts) do
-      send(Keyword.fetch!(opts, :test_pid), {:llm_request, model_spec, prompt, opts})
-      {:ok, %{text: "response text", finish_reason: "stop"}}
-    end
-  end
-
-  defmodule FakeResponse do
-    def text(%{text: text}), do: text
-  end
 
   describe "oa.log parity" do
     test "log basic capture" do
@@ -467,32 +453,6 @@ defmodule GEPA.OptimizeAnythingEvaluatorWrapperParityTest do
     end
   end
 
-  describe "make_litellm_lm parity" do
-    test "returns LM client instance" do
-      lm = OptimizeAnything.make_litellm_lm("test-model")
-      assert %Client{provider: :openai, model: "test-model"} = lm
-    end
-
-    test "string prompt" do
-      lm = fake_lm()
-
-      assert {:ok, "response text"} = GEPA.LLM.complete(lm, "hello")
-
-      assert_received {:llm_request, "openai:test-model", "hello", opts}
-      assert Keyword.fetch!(opts, :test_pid) == self()
-    end
-
-    test "messages prompt" do
-      lm = fake_lm()
-      messages = [%{role: "system", content: "sys"}, %{role: "user", content: "hi"}]
-
-      assert {:ok, "response text"} = GEPA.LLM.complete(lm, messages)
-
-      assert_received {:llm_request, "openai:test-model", ^messages, opts}
-      assert Keyword.fetch!(opts, :test_pid) == self()
-    end
-  end
-
   describe "BEAM stdio capture utility parity" do
     test "passthrough when not capturing" do
       assert capture_io(fn -> IO.write("hello") end) == "hello"
@@ -562,16 +522,6 @@ defmodule GEPA.OptimizeAnythingEvaluatorWrapperParityTest do
       assert batch.scores == [1.0]
       assert_receive {:candidate, "seed"}
     end
-  end
-
-  defp fake_lm do
-    OptimizeAnything.make_litellm_lm(
-      "test-model",
-      req_llm_module: FakeReqLLM,
-      response_module: FakeResponse,
-      provider_opts: [test_pid: self()],
-      env: fn _name -> nil end
-    )
   end
 
   defp capture_stdout(text) do

@@ -132,7 +132,6 @@ defmodule GEPA.EvaluationBatch do
 
   defp optional_list_length_matches?(_values, _expected), do: false
 
-  defp optional_length(nil), do: nil
   defp optional_length(values) when is_list(values), do: length(values)
   defp optional_length(_), do: :not_a_list
 
@@ -153,6 +152,4 @@ defmodule GEPA.EvaluationBatch do
         true
     end)
   end
-
-  defp has_invalid_objective_scores?(_objective_scores), do: true
 end

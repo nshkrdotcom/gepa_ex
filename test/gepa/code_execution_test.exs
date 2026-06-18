@@ -17,7 +17,9 @@ defmodule GEPA.CodeExecutionTest do
   end
 
   test "executes code in subprocess" do
-    result = GEPA.CodeExecution.execute("IO.puts(\"sub\")", mode: :subprocess)
+    # Subprocess mode boots a fresh BEAM; the default 5s timeout can race cold-boot
+    # on loaded machines. Give it headroom — this asserts behavior, not speed.
+    result = GEPA.CodeExecution.execute("IO.puts(\"sub\")", mode: :subprocess, timeout: 30_000)
 
     assert result.ok
     assert result.stdout =~ "sub"

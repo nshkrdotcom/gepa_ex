@@ -1109,18 +1109,19 @@ defmodule GEPA.OptimizeAnything do
     Seed.generate(lm, opts)
   end
 
-  @doc "Build a normalized hosted-provider LM client for optimize-anything helpers."
-  @spec make_litellm_lm(String.t(), keyword()) :: GEPA.LLM.Client.t()
-  def make_litellm_lm(model_name, opts \\ []) when is_binary(model_name) do
-    case String.split(model_name, "/", parts: 2) do
-      [provider, model] ->
-        provider
-        |> provider_atom()
-        |> GEPA.LLM.req_llm([{:model, model} | opts])
-
-      [model] ->
-        GEPA.LLM.req_llm(:openai, [{:model, model} | opts])
-    end
+  @doc """
+  Removed. This built a hosted-provider client through the ReqLLM provider, which
+  depended on the unpublished `:inference` package. Inject your own LLM instead: a
+  `fn prompt -> {:ok, text} end` callable, a `%GEPA.LLM.Client{}`, or `GEPA.LLM.Mock`.
+  """
+  @spec make_litellm_lm(String.t()) :: no_return()
+  @spec make_litellm_lm(String.t(), keyword()) :: no_return()
+  def make_litellm_lm(model_name, _opts \\ []) when is_binary(model_name) do
+    raise ArgumentError, """
+    GEPA.OptimizeAnything.make_litellm_lm/2 was removed: it built a ReqLLM provider \
+    that depended on the unpublished `:inference` package. Inject your own LLM (a \
+    `fn prompt -> {:ok, text} end` callable, a `%GEPA.LLM.Client{}`, or `GEPA.LLM.Mock`).\
+    """
   end
 
   @doc "Append a diagnostic message to the process-local optimize-anything log."
@@ -1203,7 +1204,7 @@ defmodule GEPA.OptimizeAnything do
         resolve_num_parallel_proposals(
           config.engine.num_parallel_proposals,
           workers,
-          reflection_minibatch_size || 1
+          reflection_minibatch_size
         ),
       reflection_minibatch_size: reflection_minibatch_size,
       run_dir: config.engine.run_dir,

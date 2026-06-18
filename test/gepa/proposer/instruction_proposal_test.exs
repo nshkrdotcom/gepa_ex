@@ -10,7 +10,7 @@ defmodule GEPA.Proposer.InstructionProposalTest do
       proposal = InstructionProposal.new(llm: llm)
 
       assert proposal.llm == llm
-      assert proposal.template != nil
+      assert is_binary(proposal.template)
       assert String.contains?(proposal.template, "<curr_param>")
       assert String.contains?(proposal.template, "<side_info>")
     end

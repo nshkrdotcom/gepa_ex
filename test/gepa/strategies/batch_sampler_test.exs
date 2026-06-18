@@ -65,7 +65,7 @@ defmodule GEPA.Strategies.BatchSamplerTest do
       {batch1, sampler} = EpochShuffled.next_batch(sampler, loader, state)
 
       assert length(batch1) == 3
-      assert sampler.shuffled_ids != nil
+      assert is_list(sampler.shuffled_ids)
       assert sampler.epoch == 0
       # All elements should be from the original list (0-indexed)
       assert Enum.all?(batch1, &(&1 in 0..5))

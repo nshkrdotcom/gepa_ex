@@ -3,7 +3,6 @@ defmodule GEPA.LLMTest do
   doctest GEPA.LLM
 
   alias GEPA.LLM.Mock
-  alias GEPA.LLM.ReqLLM
 
   describe "GEPA.LLM behavior" do
     test "complete/3 delegates to module's implementation" do
@@ -12,30 +11,34 @@ defmodule GEPA.LLMTest do
       assert response == "Test response"
     end
 
-    test "default/0 returns ReqLLM with OpenAI by default" do
-      llm = GEPA.LLM.default()
-      assert %ReqLLM{provider: :openai} = llm
-    end
-
-    test "default/0 respects application config" do
+    test "default/0 returns a Mock when no provider is configured" do
       original = Application.get_env(:gepa_ex, :llm, [])
 
       try do
-        Application.put_env(:gepa_ex, :llm, provider: :gemini)
-        llm = GEPA.LLM.default()
-        assert %ReqLLM{provider: :gemini} = llm
+        Application.delete_env(:gepa_ex, :llm)
+        assert %Mock{} = GEPA.LLM.default()
       after
         Application.put_env(:gepa_ex, :llm, original)
       end
     end
 
-    test "default/0 routes Anthropic through ReqLLM compatibility wrapper" do
+    test "default/0 returns a Mock when the provider is :mock" do
       original = Application.get_env(:gepa_ex, :llm, [])
 
       try do
-        Application.put_env(:gepa_ex, :llm, provider: :anthropic)
-        llm = GEPA.LLM.default()
-        assert %ReqLLM{provider: :anthropic} = llm
+        Application.put_env(:gepa_ex, :llm, provider: :mock)
+        assert %Mock{} = GEPA.LLM.default()
+      after
+        Application.put_env(:gepa_ex, :llm, original)
+      end
+    end
+
+    test "default/0 raises for a non-mock provider (built-in network providers were removed)" do
+      original = Application.get_env(:gepa_ex, :llm, [])
+
+      try do
+        Application.put_env(:gepa_ex, :llm, provider: :openai)
+        assert_raise ArgumentError, fn -> GEPA.LLM.default() end
       after
         Application.put_env(:gepa_ex, :llm, original)
       end
@@ -84,17 +87,6 @@ defmodule GEPA.LLMTest do
 
       assert {:ok, %{"instruction" => "fallback response"}} =
                GEPA.LLM.complete_structured(llm, "prompt")
-    end
-
-    test "dispatches to ReqLLM Anthropic wrapper when configured" do
-      llm = ReqLLM.new(provider: :anthropic, api_key: nil)
-
-      assert {:error, reason} = GEPA.LLM.complete_structured(llm, "hello")
-      reason_text = reason |> inspect() |> String.downcase()
-      assert String.contains?(reason_text, "api")
-
-      assert String.contains?(reason_text, "key") or
-               String.contains?(reason_text, "authentication")
     end
   end
 end
