@@ -8,7 +8,7 @@ defmodule GepaEx.MixProject do
     [
       app: :gepa_ex,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
@@ -19,15 +19,20 @@ defmodule GepaEx.MixProject do
       package: package(),
       docs: docs(),
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
+      dialyzer: [
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+        plt_add_apps: [:mix]
+      ]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
         "coveralls.html": :test
-      ],
-      dialyzer: [
-        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
-        plt_add_apps: [:mix]
       ]
     ]
   end
@@ -48,11 +53,13 @@ defmodule GepaEx.MixProject do
       {:jason, "~> 1.4"},
       {:telemetry, "~> 1.4"},
 
-      # LLM integration
-      {:inference, path: "../inference/apps/inference"},
-      {:req_llm, "~> 1.10"},
-      {:agent_session_manager, "~> 0.9.2"},
-      {:req, "~> 0.5.17"},
+      # LLM integration (optional). The optimizer core is provider-agnostic and
+      # talks to any model through the GEPA.LLM facade: a plain function, a
+      # GEPA.LLM.Client, or GEPA.LLM.Mock. req_llm/req are only pulled in for the
+      # optional embeddings + RAG/Qdrant adapters, so consumers that inject their
+      # own LLM callable take on neither dependency.
+      {:req_llm, "~> 1.10", optional: true},
+      {:req, "~> 0.5.17", optional: true},
 
       # Development and testing
       {:mox, "~> 1.2", only: :test},
@@ -217,9 +224,6 @@ defmodule GepaEx.MixProject do
           GEPA.LLM.Response,
           GEPA.LLM.Capabilities,
           GEPA.LLM.Tool,
-          GEPA.LLM.Adapters.ReqLLM,
-          GEPA.LLM.Adapters.AgentSessionManager,
-          GEPA.LLM.ReqLLM,
           GEPA.LLM.Mock,
           GEPA.Embeddings,
           GEPA.Embeddings.ReqLLM,
@@ -304,15 +308,14 @@ defmodule GepaEx.MixProject do
     [
       name: "gepa_ex",
       description: description(),
-      files:
-        ~w(lib mix.exs README.md LICENSE guides examples livebooks gepa/LICENSE gepa/README.md assets),
+      files: ~w(lib mix.exs README.md LICENSE guides examples livebooks assets),
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url,
         "Online documentation" => "https://hexdocs.pm/gepa_ex",
         "Python reference implementation" => "https://github.com/gepa-ai/gepa"
       },
-      maintainers: ["Lakshya A Agrawal"],
+      maintainers: ["nshkrdotcom"],
       exclude_patterns: [
         "priv/plts",
         ".DS_Store"

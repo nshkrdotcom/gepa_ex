@@ -384,8 +384,10 @@ defmodule GEPA.Adapters.GenericRAG.VectorStores.Qdrant do
   defp headers(%__MODULE__{api_key: nil}), do: []
   defp headers(%__MODULE__{api_key: api_key}), do: [{"api-key", api_key}]
 
-  defp result_embedding_dimension(%{"config" => %{"params" => %{"vectors" => %{"size" => size}}}}),
-    do: size
+  defp result_embedding_dimension(%{
+         "config" => %{"params" => %{"vectors" => %{"size" => size}}}
+       }),
+       do: size
 
   defp result_embedding_dimension(_result), do: nil
 
