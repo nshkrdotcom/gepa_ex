@@ -19,12 +19,6 @@ defmodule GepaEx.MixProject do
       package: package(),
       docs: docs(),
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [
-        coveralls: :test,
-        "coveralls.detail": :test,
-        "coveralls.post": :test,
-        "coveralls.html": :test
-      ],
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
         plt_add_apps: [:mix]
@@ -39,29 +33,40 @@ defmodule GepaEx.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test
+      ]
+    ]
+  end
+
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
   defp deps do
     [
       # Core dependencies
-      {:jason, "~> 1.4"},
-      {:telemetry, "~> 1.4"},
+      {:jason, "~> 1.4.5"},
+      {:telemetry, "~> 1.4.2"},
 
       # LLM integration
       {:inference, path: "../inference/apps/inference"},
-      {:req_llm, "~> 1.10"},
-      {:agent_session_manager, "~> 0.9.2"},
-      {:req, "~> 0.5.17"},
+      {:req_llm, "~> 1.17.1"},
+      {:agent_session_manager, "~> 0.10.0"},
+      {:req, "~> 0.6.2"},
 
       # Development and testing
-      {:mox, "~> 1.2", only: :test},
-      {:plug, "~> 1.19", only: :test},
-      {:stream_data, "~> 1.3", only: :test},
+      {:mox, "~> 1.2.0", only: :test},
+      {:plug, "~> 1.20.3", only: :test},
+      {:stream_data, "~> 1.4.0", only: :test},
       {:supertester, "~> 0.6.0", only: :test},
       {:excoveralls, "~> 0.18.5", only: :test},
-      {:ex_doc, "~> 0.40.1", only: :dev, runtime: false},
-      {:credo, "~> 1.7.18", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.40.3", only: :dev, runtime: false},
+      {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false}
     ]
   end

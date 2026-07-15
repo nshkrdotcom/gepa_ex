@@ -399,11 +399,12 @@ defmodule GEPA.Adapters.MCP do
   defp normalize_tool_selection({:ok, tool, args}),
     do: {:ok, to_string(tool), stringify_map(args || %{})}
 
+  defp normalize_tool_selection({:error, reason}), do: {:error, reason}
+
   defp normalize_tool_selection({tool, args}),
     do: {:ok, to_string(tool), stringify_map(args || %{})}
 
   defp normalize_tool_selection(tool) when is_binary(tool), do: {:ok, tool, %{}}
-  defp normalize_tool_selection({:error, reason}), do: {:error, reason}
 
   defp normalize_example(%DataInst{} = example), do: Map.from_struct(example)
 

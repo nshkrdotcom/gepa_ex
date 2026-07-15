@@ -1203,7 +1203,7 @@ defmodule GEPA.OptimizeAnything do
         resolve_num_parallel_proposals(
           config.engine.num_parallel_proposals,
           workers,
-          reflection_minibatch_size || 1
+          reflection_minibatch_size
         ),
       reflection_minibatch_size: reflection_minibatch_size,
       run_dir: config.engine.run_dir,
