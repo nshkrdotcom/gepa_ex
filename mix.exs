@@ -55,19 +55,19 @@ defmodule GepaEx.MixProject do
 
       # LLM integration
       {:inference, path: "../inference/apps/inference"},
-      {:req_llm, "~> 1.17.1"},
-      {:agent_session_manager, "~> 0.10.0"},
-      {:req, "~> 0.6.2"},
+      {:req_llm, "~> 1.26.0"},
+      {:agent_session_manager, "~> 0.17.3"},
+      {:req, "~> 0.7.4"},
 
       # Development and testing
-      {:mox, "~> 1.2.0", only: :test},
+      {:mox, "~> 1.3.2", only: :test},
       {:plug, "~> 1.20.3", only: :test},
       {:stream_data, "~> 1.4.0", only: :test},
       {:supertester, "~> 0.6.0", only: :test},
       {:excoveralls, "~> 0.18.5", only: :test},
-      {:ex_doc, "~> 0.40.3", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40.4", only: :dev, runtime: false},
       {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4.7", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4.8", only: [:dev, :test], runtime: false}
     ]
   end
 

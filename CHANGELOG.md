@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Update dependency pins to current published releases and refresh resolved project lockfiles; use the 2026-09-29 CLI SDK release train.
+
 ## v0.3.0 · 2026-04-28
 
 ### Added
